@@ -1,0 +1,34 @@
+name: Deploy backend to HuggingFace Spaces
+
+# Déclenché à chaque push sur main (= dès que tu modifies le backend et que tu pushes sur GitHub)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # permet aussi de relancer le déploiement à la main depuis l'onglet Actions
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1) Récupère tout l'historique (nécessaire pour pousser vers HF)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 2) GARDE-FOU : si le code Python ne compile pas (erreur de syntaxe),
+      #    le job échoue ICI et NE déploie PAS → la version en ligne reste intacte.
+      - name: Validate Python syntax
+        run: python -m compileall app seed.py
+
+      # 3) Déploiement : pousse le code vers le Space HuggingFace (qui rebuild tout seul)
+      - name: Push to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force "https://tigerverfi:${HF_TOKEN}@huggingface.co/spaces/tigerverfi/arra-Ahr-api" HEAD:main
