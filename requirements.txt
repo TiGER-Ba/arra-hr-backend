@@ -17,6 +17,7 @@ bcrypt==4.0.1
 # Config & utils
 pydantic>=2.7.4,<3.0.0
 pydantic-settings>=2.2.1
+email-validator==2.3.0        # requis par les champs EmailStr des schémas
 python-dotenv==1.0.1
 httpx==0.28.1
 aiofiles==23.2.1
