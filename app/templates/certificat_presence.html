@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 2.5cm 2.2cm; }
+  body { font-family: "Times New Roman", Times, serif; color: #111; font-size: 12pt; line-height: 1.65; }
+  .header { text-align: center; margin-bottom: 36px; }
+  .header .brand { font-size: 22pt; font-weight: bold; color: #1a3a8a; letter-spacing: 1px; }
+  .header .tagline { font-size: 10pt; color: #555; margin-top: 4px; }
+  .title { text-align: center; font-size: 16pt; font-weight: bold; text-decoration: underline; margin: 28px 0 32px; text-transform: uppercase; letter-spacing: 2px; }
+  .body { text-align: justify; }
+  .body p { margin: 14px 0; }
+  .signature { margin-top: 60px; }
+  .signature .lieu-date { margin-bottom: 10px; }
+  .signature .nom { font-weight: bold; }
+  .signature .fonction { font-style: italic; color: #444; }
+  .signature-images { margin-top: 10px; margin-bottom: 10px; display: flex; gap: 30px; align-items: flex-start; }
+  .signature-images img { max-height: 80px; max-width: 180px; }
+  .footer { position: fixed; bottom: 1.2cm; left: 2.2cm; right: 2.2cm; text-align: center; font-size: 9pt; color: #666; border-top: 1px solid #999; padding-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">ARRA ENGINEERING</div>
+    <div class="tagline">Engineering &amp; Technology Consulting</div>
+  </div>
+
+  <div class="title">Certificat de Présence</div>
+
+  <div class="body">
+    <p>
+      Nous soussignés, société <strong>ARRA ENGINEERING SARL</strong> ayant son siège social à
+      TECHNOPARK BD DAMMAN ANGLE RS 114 ET CT 1029 ROUTE DE NOUACEUR BUREAU 325, Casablanca,
+    </p>
+
+    <p>
+      Certifions par la présente que Madame/Monsieur <strong>{{ nom_employe }}</strong>,
+      Titulaire de la Carte d'Identité Nationale numéro <strong>{{ cin }}</strong>
+      et immatriculé(e) à la CNSS sous le numéro <strong>{{ cnss }}</strong>,
+      occupant le poste de <strong>{{ poste }}</strong> au sein du département <strong>{{ departement }}</strong>,
+      est régulièrement présent(e) et en activité au sein de notre société depuis le <strong>{{ date_embauche }}</strong>.
+    </p>
+
+    <p>
+      Ce certificat est établi à la demande de l'intéressé(e) pour servir et valoir ce que de droit.
+    </p>
+  </div>
+
+  <div class="signature">
+    <p class="lieu-date">Fait à {{ lieu_signature }}, le {{ date_generation }}</p>
+    {% if signature_url or cachet_url %}
+    <div class="signature-images">
+      {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+      {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+    </div>
+    {% endif %}
+    <p class="nom">{{ signataire_nom }}</p>
+    <p class="fonction">{{ signataire_fonction }}</p>
+  </div>
+
+  <div class="footer">
+    ARRA ENGINEERING SARL (AU)<br>
+    Capital social de 100 000 dirhams, RC n° 119431,<br>
+    TECHNOPARK BD DAMMAN ANGLE RS 114 ET CT 1029 ROUTE DE NOUACEUR BUREAU 325, Casablanca
+  </div>
+</body>
+</html>

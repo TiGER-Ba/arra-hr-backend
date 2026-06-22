@@ -1,0 +1,46 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Config & utils
+pydantic>=2.7.4,<3.0.0
+pydantic-settings>=2.2.1
+python-dotenv==1.0.1
+httpx==0.27.0
+aiofiles==23.2.1
+
+# PDF generation
+jinja2==3.1.4
+weasyprint==62.3
+
+# Excel export
+openpyxl==3.1.5
+
+# LangChain (pinned to versions compatible with langchain-core 1.x)
+langchain>=1.0,<2.0
+langchain-community>=0.3,<1.0
+langchain-text-splitters>=0.3,<1.0
+
+# LLM — Groq (chatbot)
+langchain-groq>=1.0,<2.0
+groq>=0.30,<1.0
+
+# Embeddings — HuggingFace (cloud, free) or Ollama (local, optional)
+langchain-huggingface>=0.1,<1.0
+langchain-ollama>=0.3,<1.0
+
+# Vector store (langchain-chroma + chromadb with pre-built Windows wheels)
+langchain-chroma==0.2.4
+chromadb==1.0.10
+pypdf==6.10.2
+python-docx==1.2.0

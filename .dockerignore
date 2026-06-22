@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+chroma_db/
+uploads/
+.env
+*.egg-info/
+.git/
+.gitignore
+*.md
+.DS_Store
+Thumbs.db

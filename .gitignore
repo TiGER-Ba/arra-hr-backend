@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Virtualenv
+venv/
+.venv/
+
+# Secrets — JAMAIS commit (fournis via les Secrets du Space)
+.env
+
+# Données locales / éphémères
+chroma_db/
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db

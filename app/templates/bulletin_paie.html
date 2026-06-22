@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 1.8cm 1.8cm 2.2cm 1.8cm; }
+  body { font-family: "Times New Roman", Times, serif; color: #111; font-size: 11pt; line-height: 1.4; }
+  .header { text-align: center; margin-bottom: 18px; border-bottom: 2px solid #1a3a8a; padding-bottom: 10px; }
+  .header .brand { font-size: 20pt; font-weight: bold; color: #1a3a8a; letter-spacing: 1px; }
+  .header .tagline { font-size: 10pt; color: #555; }
+  .title { text-align: center; font-size: 14pt; font-weight: bold; margin: 18px 0 14px; text-transform: uppercase; letter-spacing: 1px; }
+  .section-title { background: #1a3a8a; color: #fff; padding: 5px 10px; font-weight: bold; margin: 14px 0 6px; font-size: 10.5pt; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { border: 1px solid #999; padding: 5px 9px; font-size: 10.5pt; }
+  th { background: #eef2fb; text-align: left; width: 30%; }
+  .pay-table th { width: auto; text-align: left; }
+  .pay-table td.amount { text-align: right; width: 30%; font-variant-numeric: tabular-nums; }
+  .total-row td { font-weight: bold; background: #f5f5f5; }
+  .signature { margin-top: 36px; display: flex; justify-content: space-between; }
+  .signature .block { width: 45%; }
+  .signature .lieu-date { margin-bottom: 10px; }
+  .signature .nom { font-weight: bold; }
+  .signature .fonction { font-style: italic; color: #444; font-size: 10pt; }
+  .signature-images { margin-top: 10px; margin-bottom: 10px; display: flex; gap: 30px; align-items: flex-start; }
+  .signature-images img { max-height: 80px; max-width: 180px; }
+  .footer { position: fixed; bottom: 0.8cm; left: 1.8cm; right: 1.8cm; text-align: center; font-size: 8.5pt; color: #666; border-top: 1px solid #999; padding-top: 5px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">ARRA ENGINEERING</div>
+    <div class="tagline">Engineering &amp; Technology Consulting</div>
+  </div>
+
+  <div class="title">Bulletin de Paie — {{ mois | upper }} {{ annee }}</div>
+
+  <div class="section-title">Informations Employé</div>
+  <table>
+    <tr><th>Nom complet</th><td>{{ nom_employe }}</td><th>Matricule</th><td>{{ matricule }}</td></tr>
+    <tr><th>CIN</th><td>{{ cin }}</td><th>CNSS</th><td>{{ cnss }}</td></tr>
+    <tr><th>Poste</th><td>{{ poste }}</td><th>Département</th><td>{{ departement }}</td></tr>
+    <tr><th>Type de contrat</th><td>{{ type_contrat }}</td><th>Date d'embauche</th><td>{{ date_embauche }}</td></tr>
+  </table>
+
+  <div class="section-title">Détail de la Rémunération</div>
+  <table class="pay-table">
+    <tr><th>Désignation</th><th class="amount">Montant (MAD)</th></tr>
+    <tr><td>Salaire de base</td><td class="amount">{{ "%.2f"|format(salaire_base) }}</td></tr>
+    <tr><td>Indemnité de transport</td><td class="amount">500,00</td></tr>
+    <tr><td>Indemnité de repas</td><td class="amount">450,00</td></tr>
+    <tr class="total-row"><td>SALAIRE BRUT</td><td class="amount">{{ "%.2f"|format(salaire_base + 950) }}</td></tr>
+    <tr><td>CNSS (4,48%)</td><td class="amount">- {{ "%.2f"|format((salaire_base + 950) * 0.0448) }}</td></tr>
+    <tr><td>AMO (2,26%)</td><td class="amount">- {{ "%.2f"|format((salaire_base + 950) * 0.0226) }}</td></tr>
+    <tr><td>IR (selon barème)</td><td class="amount">- {{ "%.2f"|format((salaire_base + 950) * 0.10) }}</td></tr>
+    <tr class="total-row"><td>SALAIRE NET À PAYER</td><td class="amount">{{ "%.2f"|format((salaire_base + 950) * 0.8326) }}</td></tr>
+  </table>
+
+  <div class="signature">
+    <div class="block">
+      <p class="lieu-date">Fait à {{ lieu_signature }}, le {{ date_generation }}</p>
+      {% if signature_url or cachet_url %}
+      <div class="signature-images">
+        {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+        {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+      </div>
+      {% endif %}
+      <p class="nom">{{ signataire_nom }}</p>
+      <p class="fonction">{{ signataire_fonction }}</p>
+    </div>
+    <div class="block">
+      <p class="lieu-date">Signature de l'employé</p>
+      <p>{{ nom_employe }}</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    ARRA ENGINEERING SARL (AU) — Capital social de 100 000 dirhams, RC n° 119431<br>
+    TECHNOPARK BD DAMMAN ANGLE RS 114 ET CT 1029 ROUTE DE NOUACEUR BUREAU 325, Casablanca
+  </div>
+</body>
+</html>
