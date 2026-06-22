@@ -11,6 +11,8 @@ alembic==1.13.1
 # Auth
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+# bcrypt épinglé : passlib 1.7.4 est incompatible avec bcrypt >= 4.1 (et casse avec 5.x)
+bcrypt==4.0.1
 
 # Config & utils
 pydantic>=2.7.4,<3.0.0
