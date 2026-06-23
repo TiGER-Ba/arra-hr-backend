@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="HR Platform API",
-    version="3.0.0",
+    version="3.1.0",
     description="Plateforme RH avec chatbot Groq + RAG HuggingFace embeddings",
     lifespan=lifespan,
 )
@@ -61,4 +61,4 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def root():
-    return {"message": "HR Platform API v3 — Groq + HuggingFace embeddings"}
+    return {"message": "HR Platform API v3.1 — Groq + HuggingFace embeddings", "version": "3.1.0"}
