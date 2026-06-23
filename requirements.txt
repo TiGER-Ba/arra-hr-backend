@@ -25,6 +25,7 @@ aiofiles==23.2.1
 # PDF generation
 jinja2==3.1.4
 weasyprint==62.3
+pydyf==0.10.0        # WeasyPrint 62.3 casse avec pydyf >= 0.11 ('super' object has no attribute 'transform')
 
 # Excel export
 openpyxl==3.1.5

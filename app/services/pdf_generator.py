@@ -1,3 +1,4 @@
+import base64
 import os
 from datetime import datetime
 from pathlib import Path
@@ -41,11 +42,19 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
     cachet_row = db.query(Parametrage).filter(Parametrage.cle == "cachet").first()
 
     def _to_abs(url_path: str | None) -> str | None:
+        # Embarque l'image en data URI base64 : fonctionne à la fois dans
+        # l'aperçu HTML (navigateur) ET dans le PDF WeasyPrint, sans dépendre
+        # d'un chemin file:// (invisible côté navigateur) ni de l'URL du serveur.
         if not url_path:
             return None
         rel = url_path.lstrip("/")
         abs_path = Path(rel).resolve()
-        return abs_path.as_uri() if abs_path.exists() else None
+        if not abs_path.exists():
+            return None
+        ext = abs_path.suffix.lower().lstrip(".")
+        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "svg": "svg+xml"}.get(ext, "png")
+        data = base64.b64encode(abs_path.read_bytes()).decode("ascii")
+        return f"data:image/{mime};base64,{data}"
 
     base = {
         "nom_employe": utilisateur.nom,
