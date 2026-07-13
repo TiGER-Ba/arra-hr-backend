@@ -714,3 +714,78 @@ def delete_cachet(
         db.delete(row)
         db.commit()
     return {"message": "Cachet supprimé"}
+
+
+# ─── Paramétrage IA (chatbot Groq + embeddings RAG) ─────────────────────────
+
+class IAParams(BaseModel):
+    groq_api_key: Optional[str] = None
+    groq_api_key_2: Optional[str] = None
+    groq_model: Optional[str] = None
+    embedding_provider: Optional[str] = None
+    hf_api_key: Optional[str] = None
+    hf_embedding_model: Optional[str] = None
+    ollama_base_url: Optional[str] = None
+    ollama_embedding_model: Optional[str] = None
+
+
+@router.get("/parametrage/ia")
+def get_parametrage_ia(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """État de la config IA — les clés secrètes ne sont JAMAIS renvoyées (juste configurée ou non)."""
+    from app.services.parametrage import get_param
+    return {
+        "groq_api_key_set": bool(get_param(db, "groq_api_key", settings.GROQ_API_KEY)),
+        "groq_api_key_2_set": bool(get_param(db, "groq_api_key_2", "")),
+        "groq_model": get_param(db, "groq_model", settings.GROQ_MODEL),
+        "embedding_provider": get_param(db, "embedding_provider", settings.EMBEDDING_PROVIDER),
+        "hf_api_key_set": bool(get_param(db, "hf_api_key", settings.HF_API_KEY)),
+        "hf_embedding_model": get_param(db, "hf_embedding_model", settings.HF_EMBEDDING_MODEL),
+        "ollama_base_url": get_param(db, "ollama_base_url", settings.OLLAMA_BASE_URL),
+        "ollama_embedding_model": get_param(db, "ollama_embedding_model", settings.OLLAMA_EMBEDDING_MODEL),
+    }
+
+
+@router.post("/parametrage/ia")
+def save_parametrage_ia(
+    body: IAParams,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    from app.services.parametrage import set_param
+    data = body.model_dump(exclude_none=True)
+    changed_embed = False
+    for cle, val in data.items():
+        val = str(val)
+        # Ne pas écraser une clé secrète par une valeur vide (permet de la conserver)
+        if cle in ("groq_api_key", "groq_api_key_2", "hf_api_key") and not val.strip():
+            continue
+        set_param(db, cle, val)
+        if cle.startswith(("embedding", "hf_", "ollama")):
+            changed_embed = True
+    db.commit()
+    if changed_embed:
+        # Provider/paramètres d'embeddings modifiés → forcer la reconstruction du RAG
+        from app.services.rag import reset_rag_service
+        reset_rag_service()
+    return {"message": "Paramètres IA enregistrés"}
+
+
+@router.post("/parametrage/ia/test-groq")
+def test_parametrage_groq(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    from app.services.parametrage import groq_keys, groq_model
+    from langchain_groq import ChatGroq
+    keys = groq_keys(db)
+    if not keys:
+        raise HTTPException(status_code=400, detail="Aucune clé Groq configurée")
+    try:
+        llm = ChatGroq(model=groq_model(db), api_key=keys[0], temperature=0)
+        llm.invoke("ping")
+        return {"ok": True, "model": groq_model(db), "cles": len(keys)}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Échec Groq : {e}")

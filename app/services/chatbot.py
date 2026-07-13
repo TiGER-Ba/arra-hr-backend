@@ -13,6 +13,7 @@ from app.models.depot_document import DepotDocument
 from app.models.message import Message
 from app.models.solde import SOLDE_TYPES, SoldeEmploye
 from app.services.notifications import notifier_rh
+from app.services.parametrage import groq_keys, groq_model
 from app.services.rag import get_rag_service
 from app.services.soldes import initialiser_soldes_par_defaut
 
@@ -290,10 +291,19 @@ def _strip_think_tags(text: str) -> str:
     return THINK_TAG_PATTERN.sub("", text).strip()
 
 
-def _invoke_llm(llm: ChatGroq, messages: list) -> str:
-    response = llm.invoke(messages)
-    raw = response.content if hasattr(response, "content") else str(response)
-    return _strip_think_tags(raw)
+def _invoke_with_rotation(keys: list, model: str, messages: list) -> str:
+    """Essaie chaque clé Groq (principale puis secours) — bascule si quota / erreur."""
+    last_err = None
+    for key in keys:
+        try:
+            llm = ChatGroq(model=model, api_key=key, temperature=0.1)
+            response = llm.invoke(messages)
+            raw = response.content if hasattr(response, "content") else str(response)
+            return _strip_think_tags(raw)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            continue
+    raise last_err or RuntimeError("Aucune clé Groq configurée (Paramétrage IA)")
 
 
 DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -389,17 +399,27 @@ async def process_message(
         else:
             langchain_messages.append(AIMessage(content=h.contenu))
 
-    llm = ChatGroq(
-        model=settings.GROQ_MODEL,
-        api_key=settings.GROQ_API_KEY,
-        temperature=0.1,
-    )
+    # Clés + modèle lus depuis le Paramétrage IA (fallback .env), avec rotation de clés
+    keys = groq_keys(db) or [settings.GROQ_API_KEY]
+    model = groq_model(db)
+    clean_response = await run_in_threadpool(_invoke_with_rotation, keys, model, langchain_messages)
 
-    clean_response = await run_in_threadpool(_invoke_llm, llm, langchain_messages)
+    # Si la réponse est une action JSON (create_demande), on NE l'enregistre PAS comme
+    # message (sinon le JSON brut s'afficherait dans le chat) — seule la confirmation
+    # métier sera affichée.
+    _is_action = False
+    try:
+        _s = clean_response.find("{"); _e = clean_response.rfind("}") + 1
+        if _s != -1 and _e > _s:
+            _cand = json.loads(clean_response[_s:_e])
+            _is_action = isinstance(_cand, dict) and _cand.get("action") == "create_demande"
+    except (json.JSONDecodeError, ValueError):
+        _is_action = False
 
-    msg_assistant = Message(conversation_id=conversation_id, role="assistant", contenu=clean_response)
-    db.add(msg_assistant)
-    db.commit()
+    if not _is_action:
+        msg_assistant = Message(conversation_id=conversation_id, role="assistant", contenu=clean_response)
+        db.add(msg_assistant)
+        db.commit()
 
     try:
         start = clean_response.find("{")

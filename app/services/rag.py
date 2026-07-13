@@ -11,25 +11,35 @@ _rag_instance: "RAGService | None" = None
 
 
 def _create_embeddings():
-    provider = settings.EMBEDDING_PROVIDER.lower()
+    # Config lue depuis le Paramétrage IA (base) avec fallback .env
+    from app.database import SessionLocal
+    from app.services.parametrage import embedding_config
+    db = SessionLocal()
+    try:
+        cfg = embedding_config(db)
+    finally:
+        db.close()
+
+    provider = (cfg["provider"] or "huggingface").lower()
 
     if provider == "huggingface":
         from langchain_huggingface import HuggingFaceEndpointEmbeddings
-        if not settings.HF_API_KEY:
+        if not cfg["hf_api_key"]:
             raise RuntimeError(
-                "HF_API_KEY est requis pour EMBEDDING_PROVIDER=huggingface. "
-                "Créez un token gratuit sur https://huggingface.co/settings/tokens"
+                "Clé HuggingFace requise pour le provider d'embeddings 'huggingface'. "
+                "Renseignez-la dans Paramétrage → IA (ou créez un token gratuit sur "
+                "https://huggingface.co/settings/tokens)."
             )
         return HuggingFaceEndpointEmbeddings(
-            model=settings.HF_EMBEDDING_MODEL,
-            huggingfacehub_api_token=settings.HF_API_KEY,
+            model=cfg["hf_model"],
+            huggingfacehub_api_token=cfg["hf_api_key"],
         )
 
     # Fallback: Ollama (local)
     from langchain_ollama import OllamaEmbeddings
     return OllamaEmbeddings(
-        model=settings.OLLAMA_EMBEDDING_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
+        model=cfg["ollama_model"],
+        base_url=cfg["ollama_base_url"],
     )
 
 
