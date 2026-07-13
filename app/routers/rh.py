@@ -628,6 +628,28 @@ def delete_employe(
 
 # ─── Paramétrage (signature + cachet) ───────────────────────────────────────
 
+def _param_image_data_uri(valeur: str | None) -> str | None:
+    """Lit le fichier signature/cachet et le renvoie en data URI base64.
+
+    L'aperçu RH ne dépend plus d'un dossier `/uploads` public (retiré pour
+    raisons de sécurité) : l'image transite dans la réponse JSON protégée.
+    `valeur` est le chemin FS stocké (ex. « /uploads/parametrage/signature.png »).
+    """
+    import base64
+    import os
+
+    if not valeur:
+        return None
+    abs_path = os.path.join(".", valeur.lstrip("/"))
+    if not os.path.exists(abs_path):
+        return None
+    ext = abs_path.rsplit(".", 1)[-1].lower() if "." in abs_path else "png"
+    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "svg": "svg+xml", "webp": "webp"}.get(ext, "png")
+    with open(abs_path, "rb") as f:
+        data = base64.b64encode(f.read()).decode("ascii")
+    return f"data:image/{mime};base64,{data}"
+
+
 @router.get("/parametrage")
 def get_parametrage(
     current_user: Utilisateur = Depends(require_rh),
@@ -636,8 +658,8 @@ def get_parametrage(
     sig = db.query(Parametrage).filter(Parametrage.cle == "signature").first()
     cachet = db.query(Parametrage).filter(Parametrage.cle == "cachet").first()
     return {
-        "signature_url": sig.valeur if sig else None,
-        "cachet_url": cachet.valeur if cachet else None,
+        "signature_url": _param_image_data_uri(sig.valeur if sig else None),
+        "cachet_url": _param_image_data_uri(cachet.valeur if cachet else None),
     }
 
 
@@ -671,7 +693,7 @@ def upload_signature(
     db: Session = Depends(get_db),
 ):
     url = _save_parametrage_image(db, "signature", file)
-    return {"signature_url": url}
+    return {"signature_url": _param_image_data_uri(url)}
 
 
 @router.post("/parametrage/cachet")
@@ -681,7 +703,7 @@ def upload_cachet(
     db: Session = Depends(get_db),
 ):
     url = _save_parametrage_image(db, "cachet", file)
-    return {"cachet_url": url}
+    return {"cachet_url": _param_image_data_uri(url)}
 
 
 @router.delete("/parametrage/signature")

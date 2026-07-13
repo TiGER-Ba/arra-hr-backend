@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.database import Base, engine
 from app.routers import auth, chat, demandes, depot, documents, knowledge, notifications, rag, rh, soldes
@@ -56,7 +55,11 @@ app.include_router(rh.router, prefix="/api/rh", tags=["rh"])
 app.include_router(rag.router, prefix="/api/rag", tags=["rag"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# ⚠️ SÉCURITÉ : plus AUCUN dossier `uploads/` n'est exposé publiquement.
+# Les documents générés (attestations, salaires) et le dépôt (bulletins, contrats)
+# sont servis UNIQUEMENT via des routes protégées par JWT + contrôle de propriété
+# (documents.py::download_document, depot.py::telecharger_document).
+# La signature/cachet sont embarqués en base64 (aperçu RH + PDF WeasyPrint).
 
 
 @app.get("/")
