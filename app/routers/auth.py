@@ -12,6 +12,7 @@ from app.services.auth import (
     create_access_token,
     get_current_user,
     get_password_hash,
+    require_rh,
     verify_password,
 )
 
@@ -21,7 +22,12 @@ VALID_ROLES = {"employe", "rh", "admin"}
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-def register(payload: UtilisateurCreate, extra: EmployeCreate | None = None, db: Session = Depends(get_db)):
+def register(
+    payload: UtilisateurCreate,
+    extra: EmployeCreate | None = None,
+    current_user: Utilisateur = Depends(require_rh),  # ⚠️ plus d'inscription anonyme
+    db: Session = Depends(get_db),
+):
     if payload.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs acceptées : {VALID_ROLES}")
 

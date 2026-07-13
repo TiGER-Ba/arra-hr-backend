@@ -84,6 +84,10 @@ TEMPLATES = [
 
 USERS = [
     {
+        "user": {"nom": "Administrateur", "email": "admin@arra.ma", "mot_de_passe": "admin123456", "role": "admin"},
+        "extra": {},
+    },
+    {
         "user": {"nom": "Admin RH", "email": "rh@arra.ma", "mot_de_passe": "rh123456", "role": "rh"},
         "extra": {"service": "Direction des Ressources Humaines"},
     },
@@ -190,6 +194,7 @@ def seed():
 
         print("\nSeed terminé avec succès!")
         print("\nComptes créés :")
+        print("  Admin   : admin@arra.ma    / admin123456")
         print("  RH      : rh@arra.ma       / rh123456")
         print("  Employé : karim@arra.ma    / emp123456")
         print("  Employé : sara@arra.ma     / emp123456")
