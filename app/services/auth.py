@@ -59,3 +59,9 @@ def require_employe(current_user: Utilisateur = Depends(get_current_user)) -> Ut
     if current_user.role not in ("employe", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès réservé aux employés")
     return current_user
+
+
+def require_admin(current_user: Utilisateur = Depends(get_current_user)) -> Utilisateur:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès réservé à l'administrateur")
+    return current_user

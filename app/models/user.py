@@ -10,6 +10,7 @@ class Utilisateur(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nom: Mapped[str] = mapped_column(String(100), nullable=False)
+    prenom: Mapped[str | None] = mapped_column(String(100), nullable=True)
     email: Mapped[str] = mapped_column(String(150), unique=True, nullable=False, index=True)
     mot_de_passe: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # employe | rh | admin

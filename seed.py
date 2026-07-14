@@ -92,7 +92,7 @@ USERS = [
         "extra": {"service": "Direction des Ressources Humaines"},
     },
     {
-        "user": {"nom": "Karim Benjelloun", "email": "karim@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
+        "user": {"nom": "Benjelloun", "prenom": "Karim", "email": "karim@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
             "matricule": "EMP001",
             "poste": "Ingénieur Logiciel",
@@ -107,7 +107,7 @@ USERS = [
         },
     },
     {
-        "user": {"nom": "Sara El Amrani", "email": "sara@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
+        "user": {"nom": "El Amrani", "prenom": "Sara", "email": "sara@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
             "matricule": "EMP002",
             "poste": "Chef de Projet",
@@ -122,7 +122,7 @@ USERS = [
         },
     },
     {
-        "user": {"nom": "Ahmed Tahiri", "email": "ahmed@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
+        "user": {"nom": "Tahiri", "prenom": "Ahmed", "email": "ahmed@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
             "matricule": "EMP003",
             "poste": "Analyste Financier",
@@ -165,6 +165,7 @@ def seed():
 
             user = Utilisateur(
                 nom=u_data["nom"],
+                prenom=u_data.get("prenom"),
                 email=u_data["email"],
                 mot_de_passe=get_password_hash(u_data["mot_de_passe"]),
                 role=u_data["role"],

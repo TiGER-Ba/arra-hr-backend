@@ -8,11 +8,30 @@ from app.database import Base, engine
 from app.routers import auth, chat, demandes, depot, documents, knowledge, notifications, rag, rh, soldes, users
 
 
+def _run_startup_migrations():
+    """Migrations légères idempotentes (create_all n'altère pas les tables existantes).
+
+    Ajoute les colonnes manquantes sans Alembic — compatible PostgreSQL et SQLite.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    try:
+        cols = {c["name"] for c in insp.get_columns("utilisateurs")}
+    except Exception:
+        return  # table pas encore créée : create_all s'en charge avec le bon schéma
+    if "prenom" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE utilisateurs ADD COLUMN prenom VARCHAR(100)"))
+        print("[migrate] utilisateurs.prenom ajouté")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import app.models  # noqa: F401 — ensure all models are registered with Base
 
     Base.metadata.create_all(bind=engine)
+    _run_startup_migrations()
     os.makedirs("uploads", exist_ok=True)
     os.makedirs(os.path.join("uploads", "depot"), exist_ok=True)
     os.makedirs(os.path.join("uploads", "parametrage"), exist_ok=True)

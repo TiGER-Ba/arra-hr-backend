@@ -19,7 +19,7 @@ from app.models.parametrage import Parametrage
 from app.models.solde import SoldeEmploye
 from app.models.user import Utilisateur
 from app.schemas.demande import DemandeOut, DemandeRejeter
-from app.services.auth import get_password_hash, require_rh
+from app.services.auth import get_password_hash, require_admin, require_rh
 from app.services.notifications import notifier
 from app.services.pdf_generator import generate_pdf
 from app.services.soldes import appliquer_deduction_sur_validation, initialiser_soldes_par_defaut
@@ -652,7 +652,7 @@ def _param_image_data_uri(valeur: str | None) -> str | None:
 
 @router.get("/parametrage")
 def get_parametrage(
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     sig = db.query(Parametrage).filter(Parametrage.cle == "signature").first()
@@ -689,7 +689,7 @@ def _save_parametrage_image(db: Session, cle: str, file: UploadFile) -> str:
 @router.post("/parametrage/signature")
 def upload_signature(
     file: UploadFile = FastAPIFile(...),
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     url = _save_parametrage_image(db, "signature", file)
@@ -699,7 +699,7 @@ def upload_signature(
 @router.post("/parametrage/cachet")
 def upload_cachet(
     file: UploadFile = FastAPIFile(...),
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     url = _save_parametrage_image(db, "cachet", file)
@@ -708,7 +708,7 @@ def upload_cachet(
 
 @router.delete("/parametrage/signature")
 def delete_signature(
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     row = db.query(Parametrage).filter(Parametrage.cle == "signature").first()
@@ -724,7 +724,7 @@ def delete_signature(
 
 @router.delete("/parametrage/cachet")
 def delete_cachet(
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     row = db.query(Parametrage).filter(Parametrage.cle == "cachet").first()
@@ -753,7 +753,7 @@ class IAParams(BaseModel):
 
 @router.get("/parametrage/ia")
 def get_parametrage_ia(
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """État de la config IA — les clés secrètes ne sont JAMAIS renvoyées (juste configurée ou non)."""
@@ -773,7 +773,7 @@ def get_parametrage_ia(
 @router.post("/parametrage/ia")
 def save_parametrage_ia(
     body: IAParams,
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     from app.services.parametrage import set_param
@@ -797,7 +797,7 @@ def save_parametrage_ia(
 
 @router.post("/parametrage/ia/test-groq")
 def test_parametrage_groq(
-    current_user: Utilisateur = Depends(require_rh),
+    current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     from app.services.parametrage import groq_keys, groq_model

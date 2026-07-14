@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libglib2.0-0 \
     shared-mime-info \
+    tesseract-ocr \
+    tesseract-ocr-fra \
+    tesseract-ocr-ara \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (requis par HuggingFace Spaces — UID 1000)

@@ -23,5 +23,8 @@ class Settings(BaseSettings):
     CHROMA_DIR: str = "./chroma_db"
     DOCUMENTS_RH_DIR: str = "./app/documents_rh"
 
+    # Domaine des emails générés automatiquement (ex. w.baba@arra-engineering.com)
+    EMAIL_DOMAIN: str = "arra-engineering.com"
+
 
 settings = Settings()

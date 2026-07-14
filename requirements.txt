@@ -30,6 +30,12 @@ pydyf==0.10.0        # WeasyPrint 62.3 casse avec pydyf >= 0.11 ('super' object 
 # Excel export
 openpyxl==3.1.5
 
+# OCR pièce d'identité (CIN / passeport) — local, sans LLM (confidentialité)
+# Nécessite le binaire tesseract-ocr installé (voir Dockerfile).
+pillow==11.0.0
+pytesseract==0.3.13
+mrz==0.6.1
+
 # LangChain — versions exactes du venv de dev.
 # NB: `langchain` (méta) et `langchain-community` ne sont PAS utilisés par le code
 # et provoquaient des conflits de résolution → volontairement retirés.
