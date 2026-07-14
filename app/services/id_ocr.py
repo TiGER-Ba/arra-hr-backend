@@ -121,18 +121,39 @@ def _parse_mrz(cands: list[str]) -> dict | None:
 
 
 def _preprocess(image):
-    """Niveaux de gris + mise à l'échelle (aide l'OCR sur photos petites/énormes)."""
+    """Niveaux de gris + auto-contraste + mise à l'échelle (aide l'OCR)."""
     from PIL import ImageOps
     g = ImageOps.grayscale(image)
+    g = ImageOps.autocontrast(g, cutoff=1)
     w, h = g.size
     m = max(w, h)
-    if m < 1400:
-        s = 1400 / m
+    if m < 1600:
+        s = 1600 / m
         g = g.resize((int(w * s), int(h * s)))
     elif m > 2600:
         s = 2600 / m
         g = g.resize((int(w * s), int(h * s)))
     return g
+
+
+def _mrz_passes(image) -> list[str]:
+    """OCR MRZ : image entière (psm 6 + 4) + bande du bas (où siège la MRZ).
+
+    Lève l'exception seulement si Tesseract est absent ; sinon ignore la passe.
+    """
+    cfg6 = f"--psm 6 -c tessedit_char_whitelist={_MRZ_CHARS}"
+    cfg4 = f"--psm 4 -c tessedit_char_whitelist={_MRZ_CHARS}"
+    w, h = image.size
+    bottom = image.crop((0, int(h * 0.55), w, h))  # MRZ en bas (dos CIN / passeport)
+    jobs = [(image, cfg6), (image, cfg4), (bottom, cfg6)]
+    texts = []
+    for img, cfg in jobs:
+        try:
+            texts.append(_ocr(img, "eng", cfg))
+        except Exception as e:
+            if _is_tesseract_missing(e):
+                raise
+    return texts
 
 
 _CIN_RE = re.compile(r"\b([A-Z]{1,2}\d{4,7})\b")
@@ -186,17 +207,16 @@ def extract_id_fields(data: bytes, filename: str = "") -> dict:
     if err:
         return err
 
-    # OCR sur chaque page/image : passes MRZ (psm 6 + psm 4) + passe plein texte
+    # OCR sur chaque page/image : passes MRZ + passe plein texte
     mrz_texts: list[str] = []
     full_texts: list[str] = []
     for image in images:
         prepped = _preprocess(image)
-        for psm in ("6", "4"):
-            try:
-                mrz_texts.append(_ocr(prepped, "eng", f"--psm {psm} -c tessedit_char_whitelist={_MRZ_CHARS}"))
-            except Exception as e:
-                if _is_tesseract_missing(e):
-                    return _blank_result("OCR indisponible : Tesseract n'est pas installé sur le serveur.")
+        try:
+            mrz_texts.extend(_mrz_passes(prepped))
+        except Exception as e:
+            if _is_tesseract_missing(e):
+                return _blank_result("OCR indisponible : Tesseract n'est pas installé sur le serveur.")
         try:
             full_texts.append(_ocr(image, "fra+eng"))
         except Exception:
