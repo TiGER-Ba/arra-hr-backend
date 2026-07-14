@@ -138,40 +138,73 @@ def _preprocess(image):
 _CIN_RE = re.compile(r"\b([A-Z]{1,2}\d{4,7})\b")
 
 
-def extract_id_fields(data: bytes, filename: str = "") -> dict:
-    """Point d'entrée : bytes image → champs pré-remplis."""
-    if filename.lower().endswith(".pdf"):
-        return _blank_result("Merci de fournir une image (JPG / PNG) de la pièce, pas un PDF.")
+def _pdf_to_images(data: bytes) -> list:
+    """Rend les pages d'un PDF (max 3) en images PIL via PyMuPDF (fitz)."""
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        import pymupdf as fitz  # nom du module selon la version
+    from PIL import Image
+
+    out = []
+    with fitz.open(stream=data, filetype="pdf") as doc:
+        for page in list(doc)[:3]:
+            png = page.get_pixmap(dpi=220, alpha=False).tobytes("png")
+            out.append(Image.open(io.BytesIO(png)).convert("RGB"))
+    return out
+
+
+def _load_images(data: bytes, filename: str):
+    """Retourne (images, erreur). Gère PDF (rendu pages) et images (JPG/PNG…)."""
+    is_pdf = filename.lower().endswith(".pdf") or data[:5] == b"%PDF-"
+    if is_pdf:
+        try:
+            imgs = _pdf_to_images(data)
+        except Exception:
+            return None, _blank_result("PDF illisible — réessayez avec une image (JPG/PNG) nette.")
+        if not imgs:
+            return None, _blank_result("PDF vide.")
+        return imgs, None
 
     try:
         from PIL import Image
     except Exception:
-        return _blank_result("Bibliothèque image (Pillow) indisponible sur le serveur.")
-
+        return None, _blank_result("Bibliothèque image (Pillow) indisponible sur le serveur.")
     try:
-        image = Image.open(io.BytesIO(data)).convert("RGB")
+        return [Image.open(io.BytesIO(data)).convert("RGB")], None
     except Exception:
-        return _blank_result("Image illisible — réessayez avec une photo nette (JPG/PNG). "
-                             "Le format HEIC (iPhone) n'est pas supporté.")
+        return None, _blank_result("Image illisible — réessayez avec une photo nette (JPG/PNG). "
+                                   "Le format HEIC (iPhone) n'est pas supporté.")
 
-    prepped = _preprocess(image)
 
-    # Passes MRZ (whitelist des caractères MRZ) : psm 6 (bloc) + psm 4 (colonne)
+def extract_id_fields(data: bytes, filename: str = "") -> dict:
+    """Point d'entrée : bytes (image OU PDF) → champs pré-remplis."""
+    if not data:
+        return _blank_result("Fichier vide.")
+
+    images, err = _load_images(data, filename)
+    if err:
+        return err
+
+    # OCR sur chaque page/image : passes MRZ (psm 6 + psm 4) + passe plein texte
     mrz_texts: list[str] = []
-    for psm in ("6", "4"):
+    full_texts: list[str] = []
+    for image in images:
+        prepped = _preprocess(image)
+        for psm in ("6", "4"):
+            try:
+                mrz_texts.append(_ocr(prepped, "eng", f"--psm {psm} -c tessedit_char_whitelist={_MRZ_CHARS}"))
+            except Exception as e:
+                if _is_tesseract_missing(e):
+                    return _blank_result("OCR indisponible : Tesseract n'est pas installé sur le serveur.")
         try:
-            mrz_texts.append(_ocr(prepped, "eng", f"--psm {psm} -c tessedit_char_whitelist={_MRZ_CHARS}"))
-        except Exception as e:
-            if _is_tesseract_missing(e):
-                return _blank_result("OCR indisponible : Tesseract n'est pas installé sur le serveur.")
+            full_texts.append(_ocr(image, "fra+eng"))
+        except Exception:
+            pass
 
-    # Passe plein texte (français + anglais) pour le repli / n° CIN
-    try:
-        full_text = _ocr(image, "fra+eng")
-    except Exception:
-        full_text = ""
+    full_text = "\n".join(full_texts)
 
-    # 1) MRZ — cherchée dans toutes les passes
+    # 1) MRZ — cherchée dans toutes les passes / toutes les pages
     cands = _mrz_candidates(*mrz_texts, full_text)
     parsed = _parse_mrz(cands)
     if parsed:

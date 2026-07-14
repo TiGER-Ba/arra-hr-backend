@@ -35,6 +35,8 @@ openpyxl==3.1.5
 pillow==11.0.0
 pytesseract==0.3.13
 mrz==0.6.1
+# Rendu des PDF scannés en image pour l'OCR (aucune dépendance système, wheel autonome).
+pymupdf==1.24.10
 
 # LangChain — versions exactes du venv de dev.
 # NB: `langchain` (méta) et `langchain-community` ne sont PAS utilisés par le code
