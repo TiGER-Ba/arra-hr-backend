@@ -16,8 +16,13 @@ from app.models.employee import Employe
 from app.models.rh import RH
 from app.models.template import Template
 from app.services.auth import get_password_hash
+from app.db_migrate import run_migrations
 
 Base.metadata.create_all(bind=engine)
+# ⚠️ AVANT toute requête ORM : create_all n'ajoute pas les colonnes aux tables
+# existantes → on ajoute `prenom` ici, sinon le 1er SELECT Utilisateur planterait
+# (seed.py tourne avant uvicorn, donc avant la migration du lifespan).
+run_migrations()
 
 TEMPLATES = [
     {
