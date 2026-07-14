@@ -96,8 +96,22 @@ def _try_checker(kind: str, lines: list[str]):
     }
 
 
+def _score(valid: bool, data: dict) -> int:
+    s = 100 if valid else 0
+    if data.get("nom"):
+        s += 15
+    if data.get("prenom"):
+        s += 15
+    if data.get("cin"):
+        s += 6
+    if data.get("date_naissance"):
+        s += 4
+    return s
+
+
 def _parse_mrz(cands: list[str]) -> dict | None:
-    """Scanne toutes les fenêtres de lignes consécutives (TD1 = 3, TD3/TD2 = 2)."""
+    """Scanne toutes les fenêtres de lignes consécutives (TD1 = 3, TD3/TD2 = 2)
+    et retient le MEILLEUR résultat (clés valides > nom+prénom > n°)."""
     n = len(cands)
     windows: list[tuple[str, list[str]]] = []
     for i in range(n - 2):
@@ -106,18 +120,20 @@ def _parse_mrz(cands: list[str]) -> dict | None:
         windows.append(("td3", cands[i:i + 2]))
         windows.append(("td2", cands[i:i + 2]))
 
-    fallback = None
+    best = None
+    best_score = -1
     for kind, block in windows:
         size = _FMT[kind][1]
         res = _try_checker(kind, [_pad(x, size) for x in block])
         if not res:
             continue
         valid, data = res
-        if valid:            # clés de contrôle OK → confiance maximale
-            return data
-        if fallback is None:  # sinon on garde le 1er lisible en repli
-            fallback = data
-    return fallback
+        sc = _score(valid, data)
+        if sc > best_score:
+            best_score, best = sc, data
+            if valid and data.get("nom") and data.get("prenom"):
+                break  # résultat complet et valide : inutile de chercher mieux
+    return best
 
 
 def _preprocess(image):
