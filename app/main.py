@@ -19,11 +19,22 @@ async def lifespan(app: FastAPI):
     os.makedirs(os.path.join("uploads", "depot"), exist_ok=True)
     os.makedirs(os.path.join("uploads", "parametrage"), exist_ok=True)
 
-    try:
-        from app.services.rag import get_rag_service
-        get_rag_service()
-    except Exception as e:
-        print(f"[WARNING] RAG init failed (app continues without RAG): {e}")
+    # ⚠️ Init du RAG en ARRIÈRE-PLAN : ne JAMAIS bloquer le démarrage.
+    # uvicorn n'accepte les requêtes qu'après la fin du lifespan ; or l'indexation
+    # ChromaDB (embeddings via API HF) peut prendre du temps après un rebuild (dossier
+    # vide) → le health check HF échouerait → redémarrages en boucle. Le RAG se
+    # réchauffe donc dans un thread ; la 1re requête chatbot l'initialisera au besoin.
+    import threading
+
+    def _warm_rag():
+        try:
+            from app.services.rag import get_rag_service
+            get_rag_service()
+            print("[startup] RAG prêt.")
+        except Exception as e:
+            print(f"[WARNING] RAG init failed (app continues without RAG): {e}")
+
+    threading.Thread(target=_warm_rag, daemon=True).start()
 
     yield
 
