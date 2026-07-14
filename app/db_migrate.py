@@ -10,12 +10,17 @@ from app.database import engine
 
 
 def run_migrations():
-    insp = inspect(engine)
+    """Non-fatal : toute erreur est loggée mais n'interrompt PAS le démarrage."""
     try:
+        insp = inspect(engine)
         cols = {c["name"] for c in insp.get_columns("utilisateurs")}
-    except Exception:
+    except Exception as e:
+        print(f"[migrate] inspection ignorée ({e})")
         return  # table pas encore créée : create_all s'en charge avec le bon schéma
     if "prenom" not in cols:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE utilisateurs ADD COLUMN prenom VARCHAR(100)"))
-        print("[migrate] utilisateurs.prenom ajouté")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE utilisateurs ADD COLUMN prenom VARCHAR(100)"))
+            print("[migrate] utilisateurs.prenom ajouté")
+        except Exception as e:
+            print(f"[migrate] ERREUR ajout prenom : {e}")

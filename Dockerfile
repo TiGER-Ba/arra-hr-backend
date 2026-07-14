@@ -36,5 +36,7 @@ RUN mkdir -p uploads/depot uploads/parametrage chroma_db
 # HuggingFace Spaces attend le port 7860 ; $PORT permet aussi Render/Railway
 EXPOSE 7860
 
-# Run seed (idempotent) then serve
-CMD ["sh", "-c", "python seed.py && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+# Seed (idempotent) PUIS serveur — mais un échec du seed NE DOIT PAS empêcher
+# le démarrage de l'API (sinon crash-loop). La migration DB se refait de toute
+# façon dans le lifespan de l'app. `exec` = bonne gestion des signaux.
+CMD ["sh", "-c", "python seed.py || echo '[seed] echec ignore, demarrage du serveur'; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
