@@ -64,6 +64,58 @@ def _pad(line: str, size: int) -> str:
     return (line + "<" * size)[:size]
 
 
+_CIN_FMT = re.compile(r"^[A-Z]{1,2}\d{5,6}$")  # format CIN marocaine (ex. AB123456)
+
+
+def _valid_cin(s: str | None) -> str | None:
+    """Ne garde le n° que s'il a un format CIN plausible (sinon None, pas de faux)."""
+    if not s:
+        return None
+    s = s.replace("<", "").strip().upper()
+    return s if _CIN_FMT.match(s) else None
+
+
+# Lettres souvent confondues avec le chevron « < » par Tesseract
+_CHEVRON_MISREAD = "KLCEUIQ"
+
+
+def _looks_filler(tok: str) -> bool:
+    """Un token « bourrage » (des '<' mal lus, ex. 'LLLLLLLLLE')."""
+    if len(tok) < 4:
+        return False
+    from collections import Counter
+    ch, freq = Counter(tok).most_common(1)[0]
+    if freq == len(tok):
+        return True
+    return len(tok) >= 5 and ch in _CHEVRON_MISREAD and freq / len(tok) >= 0.6
+
+
+def _extract_name_from_line(line: str) -> tuple[str | None, str | None]:
+    """Extrait (nom, prénom) d'une ligne MRZ de NOM (TD1 ligne 3), tolérante aux
+    '<' mal lus. Ex. 'BABAK<WALID<<<<LLLLLLLLLE' → ('BABAK', 'WALID')."""
+    tokens = [t for t in re.split(r"<+", line) if t]
+    tokens = [t for t in tokens if not t.isdigit() and not _looks_filler(t)]
+    if not tokens:
+        return None, None
+    surname = tokens[0] or None
+    given = " ".join(tokens[1:]) if len(tokens) > 1 else None
+    return surname, given
+
+
+def _best_name_line(cands: list[str]) -> str | None:
+    """Ligne de NOM la plus plausible : que des [A-Z<] (pas de chiffres), un '<',
+    et qui donne un nom après nettoyage (typique de la ligne 3 d'une CIN TD1)."""
+    best = None
+    best_len = 0
+    for c in cands:
+        if any(ch.isdigit() for ch in c) or "<" not in c:
+            continue
+        sn, _ = _extract_name_from_line(c)
+        if sn and len(sn) >= 2 and len(c) > best_len:
+            best, best_len = c, len(c)
+    return best
+
+
 def _try_checker(kind: str, lines: list[str]):
     """Retourne (valide, champs) ou None."""
     try:
@@ -89,7 +141,7 @@ def _try_checker(kind: str, lines: list[str]):
     return valid, {
         "nom": surname or None,
         "prenom": name or None,
-        "cin": doc or None,
+        "cin": _valid_cin(doc),
         "nationalite": (getattr(f, "nationality", "") or "").strip() or None,
         "sexe": (getattr(f, "sex", "") or "").strip() or None,
         "date_naissance": _format_birth((getattr(f, "birth_date", "") or "").strip()),
@@ -243,9 +295,22 @@ def extract_id_fields(data: bytes, filename: str = "") -> dict:
     # 1) MRZ — cherchée dans toutes les passes / toutes les pages
     cands = _mrz_candidates(*mrz_texts, full_text)
     parsed = _parse_mrz(cands)
-    if parsed:
+
+    # Complément : extraction directe du nom (tolérante aux '<' mal lus par l'OCR)
+    name_line = _best_name_line(cands)
+    if name_line:
+        sn, gn = _extract_name_from_line(name_line)
+        if parsed is None and sn:
+            parsed = {"nom": sn, "prenom": gn, "cin": None,
+                      "nationalite": None, "sexe": None, "date_naissance": None}
+        elif parsed:
+            parsed["nom"] = parsed.get("nom") or sn
+            parsed["prenom"] = parsed.get("prenom") or gn
+
+    if parsed and (parsed.get("nom") or parsed.get("prenom") or parsed.get("cin")):
         return {"ok": True, "source": "mrz", "raw_text": full_text.strip(),
-                "message": "Extrait de la zone lisible machine (MRZ). Vérifiez avant de valider.",
+                "message": "Zone lisible machine (MRZ) lue. Vérifiez et complétez le n° si besoin "
+                           "(l'OCR peut se tromper sur quelques caractères).",
                 **parsed}
 
     # 2) Repli : n° CIN par regex
