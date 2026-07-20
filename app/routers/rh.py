@@ -1,5 +1,5 @@
 import io
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
@@ -19,10 +19,10 @@ from app.models.parametrage import Parametrage
 from app.models.solde import SoldeEmploye
 from app.models.user import Utilisateur
 from app.schemas.demande import DemandeOut, DemandeRejeter
-from app.services.auth import get_password_hash, require_admin, require_rh
+from app.services.auth import require_admin, require_rh
 from app.services.notifications import notifier
 from app.services.pdf_generator import generate_pdf
-from app.services.soldes import appliquer_deduction_sur_validation, initialiser_soldes_par_defaut
+from app.services.soldes import appliquer_deduction_sur_validation
 
 router = APIRouter()
 
@@ -437,37 +437,11 @@ def export_registre_conges(
     )
 
 
-# ─── Employés CRUD ───────────────────────────────────────────────────────────
-
-class EmployeCreate(BaseModel):
-    nom: str
-    email: str
-    mot_de_passe: str
-    matricule: str
-    poste: str
-    departement: str
-    salaire_base: float
-    date_embauche: date
-    type_contrat: Optional[str] = "CDI"
-    cin: Optional[str] = None
-    cnss: Optional[str] = None
-    adresse: Optional[str] = None
-    telephone: Optional[str] = None
-
-
-class EmployeUpdate(BaseModel):
-    nom: Optional[str] = None
-    email: Optional[str] = None
-    poste: Optional[str] = None
-    departement: Optional[str] = None
-    salaire_base: Optional[float] = None
-    date_embauche: Optional[date] = None
-    statut: Optional[str] = None
-    type_contrat: Optional[str] = None
-    cin: Optional[str] = None
-    cnss: Optional[str] = None
-    adresse: Optional[str] = None
-    telephone: Optional[str] = None
+# ─── Employés — lecture seule (fiche détaillée) ──────────────────────────────
+# ⚠️ La création / édition / suppression des employés est centralisée dans
+# `users.py` (/api/users) : email & matricule auto, prénom, garde-fous, et
+# suppression protégée contre les FK. On ne conserve ici que les endpoints de
+# consultation utilisés par la fiche employé (/rh/employes/[id]).
 
 
 def _employe_to_dict(e: Employe) -> dict:
@@ -490,14 +464,6 @@ def _employe_to_dict(e: Employe) -> dict:
     }
 
 
-@router.get("/employes")
-def liste_employes(
-    current_user: Utilisateur = Depends(require_rh),
-    db: Session = Depends(get_db),
-):
-    return [_employe_to_dict(e) for e in db.query(Employe).all()]
-
-
 @router.get("/employes/{employe_id}")
 def get_employe(
     employe_id: int,
@@ -507,94 +473,6 @@ def get_employe(
     e = db.query(Employe).filter(Employe.id == employe_id).first()
     if not e:
         raise HTTPException(status_code=404, detail="Employé introuvable")
-    return _employe_to_dict(e)
-
-
-@router.post("/employes", status_code=201)
-def create_employe(
-    payload: EmployeCreate,
-    current_user: Utilisateur = Depends(require_rh),
-    db: Session = Depends(get_db),
-):
-    if db.query(Utilisateur).filter(Utilisateur.email == payload.email).first():
-        raise HTTPException(status_code=400, detail="Email déjà utilisé")
-    if db.query(Employe).filter(Employe.matricule == payload.matricule).first():
-        raise HTTPException(status_code=400, detail="Matricule déjà utilisé")
-
-    user = Utilisateur(
-        nom=payload.nom,
-        email=payload.email,
-        mot_de_passe=get_password_hash(payload.mot_de_passe),
-        role="employe",
-    )
-    db.add(user)
-    db.flush()
-
-    emp = Employe(
-        utilisateur_id=user.id,
-        matricule=payload.matricule,
-        poste=payload.poste,
-        departement=payload.departement,
-        salaire_base=payload.salaire_base,
-        date_embauche=payload.date_embauche,
-        type_contrat=payload.type_contrat or "CDI",
-        cin=payload.cin,
-        cnss=payload.cnss,
-        adresse=payload.adresse,
-        telephone=payload.telephone,
-    )
-    db.add(emp)
-    db.commit()
-    db.refresh(emp)
-    # Initialiser les soldes par défaut
-    initialiser_soldes_par_defaut(db, emp.id)
-    return _employe_to_dict(emp)
-
-
-@router.put("/employes/{employe_id}")
-def update_employe(
-    employe_id: int,
-    payload: EmployeUpdate,
-    current_user: Utilisateur = Depends(require_rh),
-    db: Session = Depends(get_db),
-):
-    e = db.query(Employe).filter(Employe.id == employe_id).first()
-    if not e:
-        raise HTTPException(status_code=404, detail="Employé introuvable")
-
-    if payload.nom is not None:
-        e.utilisateur.nom = payload.nom
-    if payload.email is not None:
-        existing = db.query(Utilisateur).filter(
-            Utilisateur.email == payload.email,
-            Utilisateur.id != e.utilisateur_id
-        ).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Email déjà utilisé")
-        e.utilisateur.email = payload.email
-    if payload.poste is not None:
-        e.poste = payload.poste
-    if payload.departement is not None:
-        e.departement = payload.departement
-    if payload.salaire_base is not None:
-        e.salaire_base = payload.salaire_base
-    if payload.date_embauche is not None:
-        e.date_embauche = payload.date_embauche
-    if payload.statut is not None:
-        e.statut = payload.statut
-    if payload.type_contrat is not None:
-        e.type_contrat = payload.type_contrat
-    if payload.cin is not None:
-        e.cin = payload.cin
-    if payload.cnss is not None:
-        e.cnss = payload.cnss
-    if payload.adresse is not None:
-        e.adresse = payload.adresse
-    if payload.telephone is not None:
-        e.telephone = payload.telephone
-
-    db.commit()
-    db.refresh(e)
     return _employe_to_dict(e)
 
 
@@ -609,21 +487,6 @@ def get_employe_demandes(
         raise HTTPException(status_code=404, detail="Employé introuvable")
     demandes = db.query(Demande).filter(Demande.employe_id == employe_id).order_by(Demande.created_at.desc()).all()
     return [_enrich_demande(d) for d in demandes]
-
-
-@router.delete("/employes/{employe_id}", status_code=204)
-def delete_employe(
-    employe_id: int,
-    current_user: Utilisateur = Depends(require_rh),
-    db: Session = Depends(get_db),
-):
-    e = db.query(Employe).filter(Employe.id == employe_id).first()
-    if not e:
-        raise HTTPException(status_code=404, detail="Employé introuvable")
-    user = e.utilisateur
-    db.delete(e)
-    db.delete(user)
-    db.commit()
 
 
 # ─── Paramétrage (signature + cachet) ───────────────────────────────────────
@@ -811,3 +674,47 @@ def test_parametrage_groq(
         return {"ok": True, "model": groq_model(db), "cles": len(keys)}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Échec Groq : {e}")
+
+
+# ─── Paramétrage SMTP (invitations par email) ───────────────────────────────
+
+class SMTPParams(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+
+
+@router.get("/parametrage/smtp")
+def get_parametrage_smtp(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """État SMTP — le mot de passe n'est jamais renvoyé (juste configuré ou non)."""
+    from app.services.parametrage import get_param
+    return {
+        "smtp_host": get_param(db, "smtp_host", settings.SMTP_HOST),
+        "smtp_port": get_param(db, "smtp_port", str(settings.SMTP_PORT)),
+        "smtp_user": get_param(db, "smtp_user", settings.SMTP_USER),
+        "smtp_from": get_param(db, "smtp_from", settings.SMTP_FROM),
+        "smtp_password_set": bool(get_param(db, "smtp_password", settings.SMTP_PASSWORD)),
+    }
+
+
+@router.post("/parametrage/smtp")
+def save_parametrage_smtp(
+    body: SMTPParams,
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.parametrage import set_param
+    data = body.model_dump(exclude_none=True)
+    for cle, val in data.items():
+        val = str(val)
+        # Ne pas écraser le mot de passe par une valeur vide (permet de le conserver)
+        if cle == "smtp_password" and not val.strip():
+            continue
+        set_param(db, cle, val)
+    db.commit()
+    return {"message": "Paramètres SMTP enregistrés"}

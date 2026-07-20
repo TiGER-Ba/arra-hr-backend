@@ -15,6 +15,9 @@ class Utilisateur(Base):
     mot_de_passe: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # employe | rh | admin
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Invitation par email : jeton à usage unique pour définir soi-même son mot de passe
+    invite_token: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    invite_token_expire: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     employe: Mapped["Employe"] = relationship("Employe", back_populates="utilisateur", uselist=False)

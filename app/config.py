@@ -26,5 +26,13 @@ class Settings(BaseSettings):
     # Domaine des emails générés automatiquement (ex. w.baba@arra-engineering.com)
     EMAIL_DOMAIN: str = "arra-engineering.com"
 
+    # SMTP (invitations par email) — fallback si non défini dans la table Parametrage.
+    # Laisser vide désactive l'envoi : l'app retombe sur un lien d'invitation copiable.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+
 
 settings = Settings()

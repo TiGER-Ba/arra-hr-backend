@@ -13,9 +13,11 @@ Règles d'accès :
 Email auto : {prénom[0]}.{nom}@{EMAIL_DOMAIN} (ex. w.baba@arra-engineering.com).
 Matricule auto : EMP### séquentiel.
 """
+import os
 import re
+import secrets
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -29,13 +31,50 @@ from app.database import get_db
 from app.models.employee import Employe
 from app.models.rh import RH
 from app.models.user import Utilisateur
+from app.services.audit import log_action
 from app.services.auth import get_current_user, get_password_hash, require_rh, verify_password
+from app.services.email import send_email
 from app.services.soldes import initialiser_soldes_par_defaut
 
 router = APIRouter()
 
 VALID_ROLES = {"employe", "rh", "admin"}
+VALID_STATUTS = {"actif", "inactif", "suspendu"}
 MIN_PASSWORD_LEN = 6
+INVITE_TTL_DAYS = 7
+
+
+def _frontend_base() -> str:
+    """Origine du frontend pour construire les liens d'invitation (réutilise ALLOWED_ORIGINS)."""
+    return os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")[0].strip().rstrip("/")
+
+
+def _generer_invitation(user: Utilisateur) -> str:
+    """(Ré)génère un jeton d'invitation à usage unique et renvoie l'URL complète."""
+    token = secrets.token_urlsafe(32)
+    user.invite_token = token
+    user.invite_token_expire = datetime.now(timezone.utc) + timedelta(days=INVITE_TTL_DAYS)
+    return f"{_frontend_base()}/definir-mot-de-passe?token={token}"
+
+
+def _envoyer_invitation_email(db: Session, user: Utilisateur, invite_url: str) -> bool:
+    prenom = (user.prenom + " ") if user.prenom else ""
+    subject = "Votre accès à la plateforme RH — ARRA Engineering"
+    text = (
+        f"Bonjour {prenom}{user.nom},\n\n"
+        f"Un compte vient d'être créé pour vous sur la plateforme RH d'ARRA Engineering.\n"
+        f"Cliquez sur le lien ci-dessous pour définir votre mot de passe :\n\n{invite_url}\n\n"
+        f"Ce lien expire dans {INVITE_TTL_DAYS} jours.\n"
+    )
+    html = (
+        f"<p>Bonjour {prenom}{user.nom},</p>"
+        f"<p>Un compte vient d'être créé pour vous sur la plateforme RH d'ARRA Engineering.</p>"
+        f"<p><a href=\"{invite_url}\" style=\"display:inline-block;background:#6b21a8;color:#fff;"
+        f"padding:10px 18px;border-radius:8px;text-decoration:none\">Définir mon mot de passe</a></p>"
+        f"<p style=\"color:#888;font-size:12px\">Ou copiez ce lien : {invite_url}<br>"
+        f"Ce lien expire dans {INVITE_TTL_DAYS} jours.</p>"
+    )
+    return send_email(db, user.email, subject, html, text)
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -44,7 +83,8 @@ class UserCreate(BaseModel):
     nom: str
     prenom: Optional[str] = None
     email: Optional[EmailStr] = None  # auto-généré si absent
-    mot_de_passe: str
+    mot_de_passe: Optional[str] = None  # requis SAUF si envoyer_invitation=True
+    envoyer_invitation: Optional[bool] = False
     role: str  # employe | rh | admin
     service: Optional[str] = None                # RH
     matricule: Optional[str] = None              # employé (auto si absent)
@@ -66,6 +106,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     service: Optional[str] = None                 # RH
     poste: Optional[str] = None                   # employé
+    statut: Optional[str] = None                  # employé : actif | inactif | suspendu
     departement: Optional[str] = None
     salaire_base: Optional[float] = None
     date_embauche: Optional[date] = None
@@ -299,8 +340,15 @@ def creer_utilisateur(
     if payload.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs : {sorted(VALID_ROLES)}")
     _assert_can_manage(current_user, payload.role)
-    if len(payload.mot_de_passe) < MIN_PASSWORD_LEN:
-        raise HTTPException(status_code=400, detail=f"Le mot de passe doit faire au moins {MIN_PASSWORD_LEN} caractères")
+
+    # Mot de passe : soit fourni maintenant, soit défini plus tard via invitation email
+    inviter = bool(payload.envoyer_invitation)
+    if inviter:
+        raw_password = secrets.token_urlsafe(24)  # aléatoire : le compte reste inutilisable tant que non défini
+    else:
+        if not payload.mot_de_passe or len(payload.mot_de_passe) < MIN_PASSWORD_LEN:
+            raise HTTPException(status_code=400, detail=f"Le mot de passe doit faire au moins {MIN_PASSWORD_LEN} caractères")
+        raw_password = payload.mot_de_passe
 
     # Email : fourni (admin) ou auto-généré
     email = str(payload.email) if payload.email else generate_email(payload.prenom, payload.nom, db)
@@ -319,7 +367,7 @@ def creer_utilisateur(
         nom=payload.nom,
         prenom=payload.prenom,
         email=email,
-        mot_de_passe=get_password_hash(payload.mot_de_passe),
+        mot_de_passe=get_password_hash(raw_password),
         role=payload.role,
     )
     db.add(user)
@@ -342,9 +390,27 @@ def creer_utilisateur(
     elif payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
+    # Invitation : jeton + email (fallback lien copiable si SMTP non configuré)
+    invite_url = None
+    email_sent = False
+    if inviter:
+        invite_url = _generer_invitation(user)
+        email_sent = _envoyer_invitation_email(db, user, invite_url)
+
+    log_action(
+        db, current_user, "user.create",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+        details="créé avec invitation" if inviter else "créé avec mot de passe",
+    )
+
     db.commit()
     db.refresh(user)
-    return _user_to_dict(user)
+    result = _user_to_dict(user)
+    if inviter:
+        result["invite_url"] = invite_url
+        result["email_sent"] = email_sent
+    return result
 
 
 @router.put("/{user_id}")
@@ -374,11 +440,21 @@ def modifier_utilisateur(
         user.rh.service = payload.service
     if user.role == "employe" and user.employe:
         e = user.employe
+        if payload.statut is not None:
+            if payload.statut not in VALID_STATUTS:
+                raise HTTPException(status_code=400, detail=f"Statut invalide. Valeurs : {sorted(VALID_STATUTS)}")
+            e.statut = payload.statut
         for attr in ("poste", "departement", "salaire_base", "date_embauche",
                      "type_contrat", "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)
             if val is not None:
                 setattr(e, attr, val)
+
+    log_action(
+        db, current_user, "user.update",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+    )
 
     db.commit()
     db.refresh(user)
@@ -398,6 +474,12 @@ def basculer_activation(
     nouveau = not user.is_active
     _guard_deactivation(user, nouveau, current_user, db)
     user.is_active = nouveau
+    log_action(
+        db, current_user, "user.toggle_active",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+        details="activé" if nouveau else "désactivé",
+    )
     db.commit()
     db.refresh(user)
     return _user_to_dict(user)
@@ -417,8 +499,41 @@ def reinitialiser_mot_de_passe(
     if len(payload.mot_de_passe) < MIN_PASSWORD_LEN:
         raise HTTPException(status_code=400, detail=f"Le mot de passe doit faire au moins {MIN_PASSWORD_LEN} caractères")
     user.mot_de_passe = get_password_hash(payload.mot_de_passe)
+    log_action(
+        db, current_user, "user.reset_password",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+    )
     db.commit()
     return {"message": "Mot de passe réinitialisé"}
+
+
+@router.post("/{user_id}/invite")
+def inviter_utilisateur(
+    user_id: int,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """(Re)génère un lien d'invitation et l'envoie par email si le SMTP est configuré.
+
+    Renvoie toujours `invite_url` pour que le RH/admin puisse copier le lien si
+    l'email n'a pas pu être envoyé (SMTP non configuré).
+    """
+    user = db.query(Utilisateur).filter(Utilisateur.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    _assert_can_manage(current_user, user.role)
+
+    invite_url = _generer_invitation(user)
+    email_sent = _envoyer_invitation_email(db, user, invite_url)
+    log_action(
+        db, current_user, "user.invite",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+        details="email envoyé" if email_sent else "lien généré (email non envoyé)",
+    )
+    db.commit()
+    return {"invite_url": invite_url, "email_sent": email_sent}
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -436,12 +551,18 @@ def supprimer_utilisateur(
     if user.role in ("rh", "admin") and _count_active_admins_rh(db, exclude_id=user.id) == 0:
         raise HTTPException(status_code=400, detail="Au moins un compte RH/admin actif doit rester")
 
+    libelle = f"{user.email} ({user.role})"
+    cible_id = user.id
     try:
         if user.role == "employe" and user.employe:
             db.delete(user.employe)
         elif user.role == "rh" and user.rh:
             db.delete(user.rh)
         db.delete(user)
+        log_action(
+            db, current_user, "user.delete",
+            cible_type="utilisateur", cible_id=cible_id, cible_libelle=libelle,
+        )
         db.commit()
     except IntegrityError:
         db.rollback()

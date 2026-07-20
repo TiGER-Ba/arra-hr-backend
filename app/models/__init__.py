@@ -10,6 +10,7 @@ from app.models.depot_document import DepotDocument
 from app.models.solde import SoldeEmploye, MouvementSolde
 from app.models.notification import Notification
 from app.models.parametrage import Parametrage
+from app.models.audit import JournalAudit
 
 __all__ = [
     "Utilisateur",
@@ -25,4 +26,5 @@ __all__ = [
     "MouvementSolde",
     "Notification",
     "Parametrage",
+    "JournalAudit",
 ]
