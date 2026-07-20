@@ -23,3 +23,8 @@ class Utilisateur(Base):
     employe: Mapped["Employe"] = relationship("Employe", back_populates="utilisateur", uselist=False)
     rh: Mapped["RH"] = relationship("RH", back_populates="utilisateur", uselist=False)
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="utilisateur", cascade="all, delete-orphan")
+
+    @property
+    def employe_id(self) -> int | None:
+        """id de la fiche salarié si le compte en a une (indépendamment du rôle)."""
+        return self.employe.id if self.employe else None

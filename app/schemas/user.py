@@ -36,6 +36,7 @@ class UtilisateurOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    employe_id: int | None = None  # présent si le compte est aussi un salarié
     created_at: datetime
 
 

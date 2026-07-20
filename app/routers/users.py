@@ -86,6 +86,7 @@ class UserCreate(BaseModel):
     mot_de_passe: Optional[str] = None  # requis SAUF si envoyer_invitation=True
     envoyer_invitation: Optional[bool] = False
     role: str  # employe | rh | admin
+    est_salarie: Optional[bool] = False          # rh/admin : créer aussi une fiche salarié
     service: Optional[str] = None                # RH
     matricule: Optional[str] = None              # employé (auto si absent)
     poste: Optional[str] = None
@@ -119,6 +120,20 @@ class UserUpdate(BaseModel):
 
 class PasswordReset(BaseModel):
     mot_de_passe: str
+
+
+class FicheSalarieCreate(BaseModel):
+    """Rattache une fiche salarié à un compte rh/admin existant."""
+    poste: str
+    departement: str
+    salaire_base: float
+    date_embauche: date
+    matricule: Optional[str] = None
+    type_contrat: Optional[str] = "CDI"
+    cin: Optional[str] = None
+    cnss: Optional[str] = None
+    adresse: Optional[str] = None
+    telephone: Optional[str] = None
 
 
 class SelfProfileUpdate(BaseModel):
@@ -187,7 +202,8 @@ def _user_to_dict(u: Utilisateur) -> dict:
         "is_active": u.is_active,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
-    if u.role == "employe" and u.employe:
+    # Fiche salarié : présente pour tout compte qui en a une (employé, ou rh/admin salarié)
+    if u.employe:
         e = u.employe
         d.update({
             "employe_id": e.id, "matricule": e.matricule, "poste": e.poste,
@@ -196,7 +212,8 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "statut": e.statut, "type_contrat": e.type_contrat,
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
-    elif u.role == "rh" and u.rh:
+    d["est_salarie"] = u.employe is not None
+    if u.role == "rh" and u.rh:
         d["service"] = u.rh.service
     return d
 
@@ -355,10 +372,14 @@ def creer_utilisateur(
     if db.query(Utilisateur).filter(Utilisateur.email == email).first():
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
 
-    if payload.role == "employe":
+    # Fiche salarié : obligatoire pour un employé, optionnelle pour un rh/admin « salarié »
+    est_salarie = bool(payload.est_salarie) and payload.role in ("rh", "admin")
+    besoin_fiche = payload.role == "employe" or est_salarie
+    matricule = None
+    if besoin_fiche:
         for f in ("poste", "departement", "salaire_base", "date_embauche"):
             if getattr(payload, f) in (None, ""):
-                raise HTTPException(status_code=400, detail=f"Champ employé requis : {f}")
+                raise HTTPException(status_code=400, detail=f"Champ salarié requis : {f}")
         matricule = (payload.matricule or "").strip() or generate_matricule(db)
         if db.query(Employe).filter(Employe.matricule == matricule).first():
             raise HTTPException(status_code=400, detail="Ce matricule est déjà utilisé")
@@ -373,7 +394,7 @@ def creer_utilisateur(
     db.add(user)
     db.flush()
 
-    if payload.role == "employe":
+    if besoin_fiche:
         emp = Employe(
             utilisateur_id=user.id,
             matricule=matricule,
@@ -387,7 +408,7 @@ def creer_utilisateur(
         db.add(emp)
         db.flush()
         initialiser_soldes_par_defaut(db, emp.id)
-    elif payload.role == "rh":
+    if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
     # Invitation : jeton + email (fallback lien copiable si SMTP non configuré)
@@ -438,7 +459,7 @@ def modifier_utilisateur(
         user.is_active = payload.is_active
     if payload.service is not None and user.role == "rh" and user.rh:
         user.rh.service = payload.service
-    if user.role == "employe" and user.employe:
+    if user.employe:
         e = user.employe
         if payload.statut is not None:
             if payload.statut not in VALID_STATUTS:
@@ -506,6 +527,52 @@ def reinitialiser_mot_de_passe(
     )
     db.commit()
     return {"message": "Mot de passe réinitialisé"}
+
+
+@router.post("/{user_id}/employe")
+def ajouter_fiche_salarie(
+    user_id: int,
+    payload: FicheSalarieCreate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Rattache une fiche salarié (congés, attestations, bulletins) à un compte rh/admin.
+
+    Réservé de fait à l'admin (un RH ne gère que les comptes employés).
+    """
+    user = db.query(Utilisateur).filter(Utilisateur.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    _assert_can_manage(current_user, user.role)
+    if user.employe:
+        raise HTTPException(status_code=400, detail="Ce compte a déjà une fiche salarié")
+
+    matricule = (payload.matricule or "").strip() or generate_matricule(db)
+    if db.query(Employe).filter(Employe.matricule == matricule).first():
+        raise HTTPException(status_code=400, detail="Ce matricule est déjà utilisé")
+
+    emp = Employe(
+        utilisateur_id=user.id,
+        matricule=matricule,
+        poste=payload.poste,
+        departement=payload.departement,
+        salaire_base=payload.salaire_base,
+        date_embauche=payload.date_embauche,
+        type_contrat=payload.type_contrat or "CDI",
+        cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
+    )
+    db.add(emp)
+    db.flush()
+    initialiser_soldes_par_defaut(db, emp.id)
+    log_action(
+        db, current_user, "user.add_employe",
+        cible_type="utilisateur", cible_id=user.id,
+        cible_libelle=f"{user.email} ({user.role})",
+        details=f"fiche salarié {matricule}",
+    )
+    db.commit()
+    db.refresh(user)
+    return _user_to_dict(user)
 
 
 @router.post("/{user_id}/invite")

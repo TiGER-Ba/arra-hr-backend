@@ -129,6 +129,9 @@ def valider_demande(
         raise HTTPException(status_code=404, detail="Demande introuvable")
     if demande.statut not in ("en_attente", "en_cours"):
         raise HTTPException(status_code=400, detail=f"La demande a déjà le statut : {demande.statut}")
+    # Conflit d'intérêt : un RH/admin salarié ne valide pas sa propre demande
+    if demande.employe and demande.employe.utilisateur_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas valider votre propre demande")
 
     rh = _get_rh(current_user, db)
 
@@ -174,6 +177,8 @@ def rejeter_demande(
         raise HTTPException(status_code=404, detail="Demande introuvable")
     if demande.statut not in ("en_attente", "en_cours"):
         raise HTTPException(status_code=400, detail=f"La demande a déjà le statut : {demande.statut}")
+    if demande.employe and demande.employe.utilisateur_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas rejeter votre propre demande")
 
     demande.statut = "rejetee"
     demande.raison_rejet = payload.raison
