@@ -603,6 +603,46 @@ def inviter_utilisateur(
     return {"invite_url": invite_url, "email_sent": email_sent}
 
 
+def _purger_donnees_employe(db: Session, emp: Employe) -> None:
+    """Supprime toutes les données rattachées à une fiche salarié avant de la
+    supprimer : demandes (+ documents générés), conversations (+ messages),
+    soldes (+ mouvements), dépôt documentaire. Les FK sans ON DELETE (demandes,
+    documents) exigent une purge explicite."""
+    from app.models.conversation import Conversation
+    from app.models.demande import Demande
+    from app.models.depot_document import DepotDocument
+    from app.models.document import Document as DocModel
+    from app.models.message import Message
+    from app.models.solde import MouvementSolde, SoldeEmploye
+
+    emp_id = emp.id
+    demande_ids = [r[0] for r in db.query(Demande.id).filter(Demande.employe_id == emp_id).all()]
+    if demande_ids:
+        db.query(DocModel).filter(DocModel.demande_id.in_(demande_ids)).delete(synchronize_session=False)
+        db.query(Demande).filter(Demande.id.in_(demande_ids)).delete(synchronize_session=False)
+    conv_ids = [r[0] for r in db.query(Conversation.id).filter(Conversation.employe_id == emp_id).all()]
+    if conv_ids:
+        db.query(Message).filter(Message.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+        db.query(Conversation).filter(Conversation.id.in_(conv_ids)).delete(synchronize_session=False)
+    solde_ids = [r[0] for r in db.query(SoldeEmploye.id).filter(SoldeEmploye.employe_id == emp_id).all()]
+    if solde_ids:
+        db.query(MouvementSolde).filter(MouvementSolde.solde_id.in_(solde_ids)).delete(synchronize_session=False)
+        db.query(SoldeEmploye).filter(SoldeEmploye.id.in_(solde_ids)).delete(synchronize_session=False)
+    db.query(DepotDocument).filter(DepotDocument.employe_id == emp_id).delete(synchronize_session=False)
+    db.delete(emp)
+
+
+def _detacher_refs_rh(db: Session, rh: RH) -> None:
+    """Détache (sans les supprimer) les documents générés par ce RH — on conserve
+    le document, on retire juste l'auteur — puis supprime la fiche RH. Le dépôt et
+    les mouvements pointant vers ce RH passent en NULL (ON DELETE SET NULL en base)."""
+    from app.models.document import Document as DocModel
+    db.query(DocModel).filter(DocModel.rh_id == rh.id).update(
+        {DocModel.rh_id: None}, synchronize_session=False
+    )
+    db.delete(rh)
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def supprimer_utilisateur(
     user_id: int,
@@ -621,10 +661,11 @@ def supprimer_utilisateur(
     libelle = f"{user.email} ({user.role})"
     cible_id = user.id
     try:
-        if user.role == "employe" and user.employe:
-            db.delete(user.employe)
-        elif user.role == "rh" and user.rh:
-            db.delete(user.rh)
+        # Un compte peut cumuler une fiche salarié ET une fiche RH (rh/admin salarié)
+        if user.employe:
+            _purger_donnees_employe(db, user.employe)
+        if user.rh:
+            _detacher_refs_rh(db, user.rh)
         db.delete(user)
         log_action(
             db, current_user, "user.delete",
@@ -635,7 +676,7 @@ def supprimer_utilisateur(
         db.rollback()
         raise HTTPException(
             status_code=400,
-            detail="Suppression impossible (documents/demandes liés). Désactivez plutôt le compte.",
+            detail="Suppression impossible (dépendances liées). Désactivez plutôt le compte.",
         )
 
 

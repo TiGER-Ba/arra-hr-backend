@@ -15,8 +15,11 @@ from app.models.demande import Demande
 from app.models.depot_document import DepotDocument
 from app.services.notifications import notifier_rh
 
-# Types de documents auto-générés sans validation RH
-AUTO_GENERATION_TYPES = {"attestation_travail", "attestation_salaire", "certificat_presence"}
+# Types auto-générés SANS validation RH.
+# ⚠️ Désactivé : TOUTES les demandes passent désormais par la validation RH
+# (une demande créée reste « en_attente » jusqu'à validation manuelle). Pour
+# ré-autoriser l'auto-génération d'un type, le rajouter dans cet ensemble.
+AUTO_GENERATION_TYPES: set[str] = set()
 
 DEMANDES_CONFIG = {
     "bulletin_paie": {
