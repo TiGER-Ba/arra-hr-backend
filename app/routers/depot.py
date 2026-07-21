@@ -223,6 +223,7 @@ def telecharger_document(
     doc_id: int,
     request: Request,
     token: str | None = Query(default=None),
+    inline: bool = Query(default=False),  # True = visualisation dans le navigateur
     db: Session = Depends(get_db),
 ):
     current_user = _resolve_user_depot(request, token, db)
@@ -242,6 +243,17 @@ def telecharger_document(
 
     if not os.path.exists(doc.chemin_fichier):
         raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur")
+
+    if inline:
+        # Type deviné pour un affichage correct dans le navigateur (PDF, image…)
+        import mimetypes
+        media = mimetypes.guess_type(doc.chemin_fichier)[0] or "application/pdf"
+        return FileResponse(
+            path=doc.chemin_fichier,
+            filename=doc.nom_fichier,
+            media_type=media,
+            content_disposition_type="inline",
+        )
 
     return FileResponse(
         path=doc.chemin_fichier,

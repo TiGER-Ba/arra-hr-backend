@@ -69,6 +69,7 @@ def download_document(
     document_id: int,
     request: Request,
     token: str | None = Query(default=None),
+    inline: bool = Query(default=False),  # True = visualisation dans le navigateur (pas de téléchargement)
     db: Session = Depends(get_db),
 ):
     current_user = _resolve_user(request, token, db)
@@ -86,4 +87,5 @@ def download_document(
         path=doc.chemin_fichier,
         media_type="application/pdf",
         filename=os.path.basename(doc.chemin_fichier),
+        content_disposition_type="inline" if inline else "attachment",
     )
