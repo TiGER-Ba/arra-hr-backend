@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
-from app.routers import audit, auth, chat, demandes, depot, documents, knowledge, notifications, rag, rh, soldes, users
+from app.routers import audit, auth, chat, demandes, depot, documents, knowledge, notifications, pointage, rag, rh, soldes, users
 
 
 @asynccontextmanager
@@ -63,6 +63,7 @@ app.include_router(demandes.router, prefix="/api/demandes", tags=["demandes"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(depot.router, prefix="/api/depot", tags=["depot"])
 app.include_router(soldes.router, prefix="/api/soldes", tags=["soldes"])
+app.include_router(pointage.router, prefix="/api/pointage", tags=["pointage"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(rh.router, prefix="/api/rh", tags=["rh"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])

@@ -613,9 +613,12 @@ def _purger_donnees_employe(db: Session, emp: Employe) -> None:
     from app.models.depot_document import DepotDocument
     from app.models.document import Document as DocModel
     from app.models.message import Message
+    from app.models.pointage import FeuilleTemps, Pointage
     from app.models.solde import MouvementSolde, SoldeEmploye
 
     emp_id = emp.id
+    db.query(Pointage).filter(Pointage.employe_id == emp_id).delete(synchronize_session=False)
+    db.query(FeuilleTemps).filter(FeuilleTemps.employe_id == emp_id).delete(synchronize_session=False)
     demande_ids = [r[0] for r in db.query(Demande.id).filter(Demande.employe_id == emp_id).all()]
     if demande_ids:
         db.query(DocModel).filter(DocModel.demande_id.in_(demande_ids)).delete(synchronize_session=False)
