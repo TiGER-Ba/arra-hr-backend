@@ -4,10 +4,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    # « production » active les contrôles stricts au démarrage (cf. services/security.py)
+    ENVIRONMENT: str = "development"
+
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/hr_platform"
     SECRET_KEY: str = "changeme_at_least_32_chars_long_secret"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
+
+    # Taille maximale des fichiers téléversés (Mo)
+    MAX_UPLOAD_MB: int = 10
 
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.1-8b-instant"

@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.services.auth import (
     require_rh,
     verify_password,
 )
+from app.services.security import login_limiter
 
 router = APIRouter()
 
@@ -88,13 +89,20 @@ def register(
 
 
 @router.post("/login", response_model=Token)
-def login(payload: UtilisateurLogin, db: Session = Depends(get_db)):
+def login(payload: UtilisateurLogin, request: Request, db: Session = Depends(get_db)):
+    # Anti brute-force : plafonne les tentatives par IP (cf. services/security.py)
+    ip = request.client.host if request.client else "inconnu"
+    login_limiter.check(ip)
+
     user = db.query(Utilisateur).filter(Utilisateur.email == payload.email).first()
     if not user or not verify_password(payload.mot_de_passe, user.mot_de_passe):
+        # Message volontairement identique dans les deux cas : ne pas révéler
+        # si l'adresse email existe (énumération de comptes).
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou mot de passe incorrect")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Compte désactivé")
 
+    login_limiter.reset(ip)
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return Token(access_token=token, token_type="bearer", user=UtilisateurOut.model_validate(user))
 

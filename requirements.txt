@@ -9,7 +9,9 @@ psycopg2-binary==2.9.9
 alembic==1.13.1
 
 # Auth
-python-jose[cryptography]==3.3.0
+# ⚠️ SÉCURITÉ : 3.3.0 est vulnérable (CVE-2024-33663 confusion d'algorithme,
+# CVE-2024-33664 « JWT bomb » / déni de service). Ne pas redescendre sous 3.4.0.
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 # bcrypt épinglé : passlib 1.7.4 est incompatible avec bcrypt >= 4.1 (et casse avec 5.x)
 bcrypt==4.0.1
@@ -32,7 +34,7 @@ openpyxl==3.1.5
 
 # OCR pièce d'identité (CIN / passeport) — local, sans LLM (confidentialité)
 # Nécessite le binaire tesseract-ocr installé (voir Dockerfile).
-pillow==11.0.0
+pillow==11.3.0        # 11.0.0 : CVE-2025-48379 (dépassement de tampon)
 pytesseract==0.3.13
 mrz==0.6.1
 # Rendu des PDF scannés en image pour l'OCR (aucune dépendance système, wheel autonome).

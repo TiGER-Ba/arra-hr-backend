@@ -531,17 +531,29 @@ def get_parametrage(
     }
 
 
+IMAGES_AUTORISEES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
 def _save_parametrage_image(db: Session, cle: str, file: UploadFile) -> str:
+    """`cle` est interne (« signature »/« cachet ») ; seule l'extension vient du
+    client, et elle est validée contre une liste blanche d'images."""
     import os
+
+    from app.services.security import read_upload_limited, safe_filename
+
+    contenu = read_upload_limited(file, settings.MAX_UPLOAD_MB, IMAGES_AUTORISEES)
+
     upload_dir = os.path.join(settings.UPLOADS_DIR, "parametrage")
     os.makedirs(upload_dir, exist_ok=True)
 
-    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "png"
-    filename = f"{cle}.{ext}"
+    ext = os.path.splitext(safe_filename(file.filename))[1].lower() or ".png"
+    if ext not in IMAGES_AUTORISEES:
+        raise HTTPException(status_code=400, detail="Format d'image non supporté")
+    filename = f"{cle}{ext}"
     filepath = os.path.join(upload_dir, filename)
 
     with open(filepath, "wb") as f:
-        f.write(file.file.read())
+        f.write(contenu)
 
     url_path = f"/uploads/parametrage/{filename}"
 

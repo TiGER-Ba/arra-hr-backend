@@ -694,9 +694,9 @@ async def extraire_piece_identite(
 
     Aucune donnée n'est envoyée à un service externe (confidentialité).
     """
-    data = await fichier.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Fichier vide")
+    from app.services.security import read_upload_limited
+
+    data = read_upload_limited(fichier, settings.MAX_UPLOAD_MB, {".png", ".jpg", ".jpeg", ".webp", ".pdf"})
     try:
         from app.services.id_ocr import extract_id_fields
     except Exception:

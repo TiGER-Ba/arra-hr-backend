@@ -1,14 +1,12 @@
-import os
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.models.user import Utilisateur
 from app.services.auth import require_rh
 from app.services.rag import get_rag_service
+from app.services.security import read_upload_limited, safe_filename, safe_join
 
 router = APIRouter()
 
@@ -50,14 +48,19 @@ async def upload_document(
     file: UploadFile = File(...),
     current_user: Utilisateur = Depends(require_rh),
 ):
-    ext = Path(file.filename).suffix.lower()
+    # ⚠️ SÉCURITÉ : le nom fourni par le client ne doit JAMAIS servir tel quel à
+    # construire un chemin (« ../.. » → écriture hors du dossier). On assainit,
+    # et on plafonne la taille avant d'écrire quoi que ce soit sur le disque.
+    nom = safe_filename(file.filename)
+    ext = Path(nom).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Format non supporté. Acceptés : .txt, .pdf, .docx")
 
+    contenu = read_upload_limited(file, settings.MAX_UPLOAD_MB, ALLOWED_EXTENSIONS)
+
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = DOCS_DIR / file.filename
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    dest = Path(safe_join(str(DOCS_DIR), nom))
+    dest.write_bytes(contenu)
 
     # Validate we can extract text
     try:
@@ -84,8 +87,8 @@ def delete_document(
     current_user: Utilisateur = Depends(require_rh),
 ):
     # Sécurité : on refuse les chemins relatifs/absolus
-    safe_name = os.path.basename(filename)
-    path = DOCS_DIR / safe_name
+    safe_name = safe_filename(filename)
+    path = Path(safe_join(str(DOCS_DIR), safe_name))
     if not path.exists() or path.suffix.lower() not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=404, detail="Fichier introuvable")
     try:

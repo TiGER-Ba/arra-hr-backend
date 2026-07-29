@@ -1,5 +1,4 @@
 import os
-import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
@@ -15,6 +14,7 @@ from app.models.rh import RH
 from app.models.user import Utilisateur
 from app.schemas.depot import DepotDocumentDetail, DepotDocumentOut
 from app.services.auth import get_current_user, require_rh
+from app.services.security import read_upload_limited, safe_filename, safe_join
 
 router = APIRouter()
 
@@ -68,22 +68,24 @@ async def upload_document(
     emp = _get_employe_or_404(employe_id, db)
     rh = _get_rh(current_user, db)
 
-    # Dossier dédié à l'employé
-    emp_dir = os.path.join(DEPOT_DIR, f"employe_{emp.matricule}")
+    # ⚠️ SÉCURITÉ : nom de fichier ET matricule sont assainis avant de composer un
+    # chemin (sinon « ../ » permettrait d'écrire hors du dépôt). La taille est
+    # plafonnée AVANT écriture sur disque.
+    contenu = read_upload_limited(fichier, settings.MAX_UPLOAD_MB)
+
+    emp_dir = safe_join(DEPOT_DIR, f"employe_{safe_filename(emp.matricule, 'inconnu')}")
     os.makedirs(emp_dir, exist_ok=True)
 
-    # Nom de fichier sûr : on garde l'original mais on préfixe
-    safe_name = fichier.filename or "document"
-    # Éviter les collisions de noms
+    safe_name = safe_filename(fichier.filename)
     base, ext = os.path.splitext(safe_name)
     counter = 1
-    dest_path = os.path.join(emp_dir, safe_name)
+    dest_path = safe_join(emp_dir, safe_name)
     while os.path.exists(dest_path):
-        dest_path = os.path.join(emp_dir, f"{base}_{counter}{ext}")
+        dest_path = safe_join(emp_dir, f"{base}_{counter}{ext}")
         counter += 1
 
     with open(dest_path, "wb") as f:
-        shutil.copyfileobj(fichier.file, f)
+        f.write(contenu)
 
     doc = DepotDocument(
         employe_id=emp.id,

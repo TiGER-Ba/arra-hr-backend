@@ -11,7 +11,14 @@ from app.routers import audit, auth, chat, demandes, depot, documents, knowledge
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import app.models  # noqa: F401 — ensure all models are registered with Base
+    from app.config import settings
     from app.db_migrate import run_migrations
+    from app.services.security import verifier_configuration
+
+    # ⚠️ Contrôle de configuration AVANT tout : en production, un SECRET_KEY par
+    # défaut rendrait les JWT falsifiables → on refuse de démarrer.
+    for avertissement in verifier_configuration(settings):
+        print(f"[WARNING] {avertissement}")
 
     Base.metadata.create_all(bind=engine)
     run_migrations()
@@ -46,16 +53,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — accept localhost (dev) + any Vercel/Render deployment
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+# CORS — liste blanche d'origines exactes (jamais « * » avec allow_credentials).
+ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def entetes_securite(request, call_next):
+    """En-têtes de sécurité sur toutes les réponses (défense en profondeur)."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-XSS-Protection", "0")
+    return response
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
