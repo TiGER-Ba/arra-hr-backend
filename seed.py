@@ -147,10 +147,17 @@ USERS = [
 def seed():
     db = SessionLocal()
     try:
-        # Templates
-        existing_templates = {t.type for t in db.query(Template).all()}
+        # ── Templates : création ET synchronisation ──────────────────────────
+        # ⚠️ Auparavant, un template existant n'était JAMAIS mis à jour : toute
+        # correction du HTML sur disque restait invisible en production (c'est ce
+        # qui figeait le rendu de la signature/du cachet). On resynchronise donc
+        # le contenu à chaque démarrage, sauf si un template a été personnalisé
+        # depuis l'application (colonne `personnalise`).
+        existants = {t.type: t for t in db.query(Template).all()}
+        crees = maj = 0
         for tpl in TEMPLATES:
-            if tpl["type"] not in existing_templates:
+            actuel = existants.get(tpl["type"])
+            if actuel is None:
                 db.add(Template(
                     type=tpl["type"],
                     nom=tpl["nom"],
@@ -158,8 +165,19 @@ def seed():
                     champs_requis=tpl["champs_requis"],
                     actif=True,
                 ))
-                print(f"  [template] {tpl['nom']}")
+                crees += 1
+                print(f"  [template créé] {tpl['nom']}")
+            elif getattr(actuel, "personnalise", False):
+                print(f"  [template conservé — personnalisé] {tpl['nom']}")
+            elif actuel.contenu_html != tpl["contenu_html"]:
+                actuel.contenu_html = tpl["contenu_html"]
+                actuel.champs_requis = tpl["champs_requis"]
+                actuel.nom = tpl["nom"]
+                maj += 1
+                print(f"  [template mis à jour] {tpl['nom']}")
         db.commit()
+        if crees or maj:
+            print(f"  → {crees} créé(s), {maj} mis à jour")
 
         # Users
         for entry in USERS:

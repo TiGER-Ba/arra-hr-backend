@@ -299,6 +299,136 @@ def dashboard(
     }
 
 
+@router.get("/pilotage")
+def pilotage(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Indicateurs de pilotage RH + alertes actionnables.
+
+    Complète `/dashboard` (file de traitement) par une vision d'ensemble :
+    effectifs, masse salariale, absences en cours et à venir, et les anomalies
+    qui demandent une action (solde négatif, feuille de temps non remplie).
+    """
+    from datetime import date as _date
+
+    from app.models.pointage import FeuilleTemps, Pointage
+    from app.models.solde import SoldeEmploye
+
+    aujourdhui = _date.today()
+    annee = aujourdhui.year
+    dans_30j = aujourdhui + timedelta(days=30)
+
+    employes = db.query(Employe).all()
+    actifs = [e for e in employes if e.statut == "actif"]
+    masse_salariale = sum(float(e.salaire_base) for e in actifs)
+
+    # Répartition par département (aide à repérer les déséquilibres)
+    par_departement: dict[str, int] = {}
+    for e in actifs:
+        par_departement[e.departement or "—"] = par_departement.get(e.departement or "—", 0) + 1
+    departements = sorted(
+        [{"nom": k, "effectif": v} for k, v in par_departement.items()],
+        key=lambda x: -x["effectif"],
+    )[:6]
+
+    # Absences en cours et à venir (30 jours) d'après les congés validés
+    absents_aujourdhui, prochaines_absences = [], []
+    demandes_conge = (
+        db.query(Demande)
+        .filter(Demande.type.in_(("demande_conge", "attestation_conge")), Demande.statut == "validee")
+        .all()
+    )
+    for d in demandes_conge:
+        dc = d.donnees_collectees or {}
+        debut_s = _normalize_date_to_iso(str(dc.get("date_debut", "")))
+        fin_s = _normalize_date_to_iso(str(dc.get("date_fin", "")))
+        if not debut_s or not fin_s:
+            continue
+        try:
+            debut, fin = _date.fromisoformat(debut_s), _date.fromisoformat(fin_s)
+        except ValueError:
+            continue
+        nom = d.employe.utilisateur.nom if d.employe and d.employe.utilisateur else "—"
+        item = {"nom": nom, "debut": debut.isoformat(), "fin": fin.isoformat(),
+                "type": dc.get("type_conge", "congé")}
+        if debut <= aujourdhui <= fin:
+            absents_aujourdhui.append(item)
+        elif aujourdhui < debut <= dans_30j:
+            prochaines_absences.append(item)
+    prochaines_absences.sort(key=lambda x: x["debut"])
+
+    # Taux d'absence du mois en cours (jours d'absence / jours travaillables)
+    debut_mois = aujourdhui.replace(day=1)
+    jours_absence = db.query(func.count(Pointage.id)).filter(
+        Pointage.date_jour >= debut_mois,
+        Pointage.date_jour <= aujourdhui,
+        Pointage.type.in_(("conge_paye", "conge_sans_solde", "maladie")),
+    ).scalar() or 0
+    jours_ouvres_ecoules = sum(
+        1 for n in range((aujourdhui - debut_mois).days + 1)
+        if (debut_mois + timedelta(days=n)).weekday() < 5
+    )
+    base_absence = jours_ouvres_ecoules * max(len(actifs), 1)
+    taux_absence = round((jours_absence / base_absence) * 100, 1) if base_absence else 0.0
+
+    # ── Alertes actionnables ──
+    alertes = []
+    soldes_negatifs = (
+        db.query(SoldeEmploye)
+        .filter(SoldeEmploye.annee_reference == annee, SoldeEmploye.consomme > SoldeEmploye.quota_total)
+        .all()
+    )
+    for s in soldes_negatifs:
+        emp = db.query(Employe).filter(Employe.id == s.employe_id).first()
+        if emp and emp.utilisateur:
+            depasse = float(s.consomme) - float(s.quota_total)
+            alertes.append({
+                "gravite": "danger",
+                "message": f"{emp.utilisateur.nom} dépasse son quota « {s.type} » de {depasse:g} {s.unite}",
+                "lien": f"/rh/employes/{emp.id}",
+            })
+
+    # Feuilles de temps du mois précédent non soumises
+    mois_prec = (debut_mois - timedelta(days=1))
+    soumises = {
+        f.employe_id for f in db.query(FeuilleTemps).filter_by(
+            annee=mois_prec.year, mois=mois_prec.month, statut="soumise").all()
+    }
+    manquantes = [e for e in actifs if e.id not in soumises]
+    if manquantes:
+        alertes.append({
+            "gravite": "warning",
+            "message": (
+                f"{len(manquantes)} feuille(s) de temps non soumise(s) pour {mois_prec.strftime('%m/%Y')}"
+            ),
+            "lien": "/rh/pointage",
+        })
+
+    # Demandes en attente depuis plus de 5 jours
+    seuil = datetime.now() - timedelta(days=5)
+    vieilles = db.query(func.count(Demande.id)).filter(
+        Demande.statut == "en_attente", Demande.created_at < seuil
+    ).scalar() or 0
+    if vieilles:
+        alertes.append({
+            "gravite": "warning",
+            "message": f"{vieilles} demande(s) en attente depuis plus de 5 jours",
+            "lien": "/rh/demandes",
+        })
+
+    return {
+        "effectif_total": len(employes),
+        "effectif_actif": len(actifs),
+        "masse_salariale": masse_salariale,
+        "taux_absence": taux_absence,
+        "absents_aujourdhui": absents_aujourdhui,
+        "prochaines_absences": prochaines_absences[:8],
+        "departements": departements,
+        "alertes": alertes,
+    }
+
+
 # ─── Registre des congés ─────────────────────────────────────────────────────
 
 def _normalize_date_to_iso(d: str) -> str:
@@ -647,6 +777,9 @@ def get_parametrage_ia(
         "hf_embedding_model": get_param(db, "hf_embedding_model", settings.HF_EMBEDDING_MODEL),
         "ollama_base_url": get_param(db, "ollama_base_url", settings.OLLAMA_BASE_URL),
         "ollama_embedding_model": get_param(db, "ollama_embedding_model", settings.OLLAMA_EMBEDDING_MODEL),
+        # Renseigné si le chatbot a dû basculer parce que le modèle configuré
+        # n'existait plus chez Groq (l'admin doit en être informé).
+        "repli_depuis": get_param(db, "groq_model_repli_depuis", ""),
     }
 
 
@@ -680,17 +813,72 @@ def test_parametrage_groq(
     current_user: Utilisateur = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Valide la clé Groq ET renvoie les modèles réellement disponibles.
+
+    Permet à l'administrateur de choisir un modèle existant au lieu d'en saisir
+    un au hasard (Groq en retire régulièrement, ce qui cassait le chatbot).
+    """
+    from app.services.ia_providers import lister_modeles_groq
     from app.services.parametrage import groq_keys, groq_model
-    from langchain_groq import ChatGroq
+
     keys = groq_keys(db)
     if not keys:
         raise HTTPException(status_code=400, detail="Aucune clé Groq configurée")
     try:
-        llm = ChatGroq(model=groq_model(db), api_key=keys[0], temperature=0)
-        llm.invoke("ping")
-        return {"ok": True, "model": groq_model(db), "cles": len(keys)}
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Échec Groq : {e}")
+        modeles = lister_modeles_groq(keys[0])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    actuel = groq_model(db)
+    ids = [m["id"] for m in modeles]
+    return {
+        "ok": True,
+        "cles": len(keys),
+        "modele_actuel": actuel,
+        "modele_actuel_disponible": actuel in ids,
+        "modeles": modeles,
+    }
+
+
+@router.post("/parametrage/ia/test-embeddings")
+def test_parametrage_embeddings(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Vérifie que le modèle d'embedding répond vraiment (et donne sa dimension)."""
+    from app.services.ia_providers import HF_EMBEDDING_SUGGESTIONS, tester_embedding_hf
+    from app.services.parametrage import embedding_config
+
+    cfg = embedding_config(db)
+    if (cfg["provider"] or "").lower() != "huggingface":
+        return {
+            "ok": True,
+            "provider": cfg["provider"],
+            "message": "Fournisseur Ollama (local) : test distant non applicable.",
+            "suggestions": [],
+        }
+    try:
+        res = tester_embedding_hf(cfg["hf_api_key"], cfg["hf_model"])
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+            headers={"X-Suggestions": ",".join(s["id"] for s in HF_EMBEDDING_SUGGESTIONS)},
+        )
+    return {
+        "ok": True,
+        "provider": "huggingface",
+        "model": res["model"],
+        "dimension": res["dimension"],
+        "suggestions": HF_EMBEDDING_SUGGESTIONS,
+    }
+
+
+@router.get("/parametrage/ia/modeles-embeddings")
+def modeles_embeddings(current_user: Utilisateur = Depends(require_admin)):
+    """Liste de modèles d'embedding connus pour fonctionner via l'API HuggingFace."""
+    from app.services.ia_providers import HF_EMBEDDING_SUGGESTIONS
+    return HF_EMBEDDING_SUGGESTIONS
 
 
 # ─── Paramétrage SMTP (invitations par email) ───────────────────────────────
@@ -717,6 +905,20 @@ def get_parametrage_smtp(
         "smtp_from": get_param(db, "smtp_from", settings.SMTP_FROM),
         "smtp_password_set": bool(get_param(db, "smtp_password", settings.SMTP_PASSWORD)),
     }
+
+
+@router.post("/parametrage/smtp/test")
+def test_parametrage_smtp(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Envoie un email de vérification à l'administrateur connecté."""
+    from app.services.email import envoyer_test
+    try:
+        envoyer_test(db, current_user.email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "message": f"Email de test envoyé à {current_user.email}"}
 
 
 @router.post("/parametrage/smtp")

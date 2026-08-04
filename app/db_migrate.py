@@ -36,3 +36,11 @@ def run_migrations():
     _add_column(cols, "utilisateurs", "prenom", "VARCHAR(100)")
     _add_column(cols, "utilisateurs", "invite_token", "VARCHAR(128)")
     _add_column(cols, "utilisateurs", "invite_token_expire", "TIMESTAMP")
+
+    # templates.personnalise : protège un template retouché à la main contre la
+    # resynchronisation automatique effectuée par seed.py.
+    try:
+        cols_tpl = {c["name"] for c in insp.get_columns("templates")}
+    except Exception:
+        return
+    _add_column(cols_tpl, "templates", "personnalise", "BOOLEAN DEFAULT FALSE NOT NULL")

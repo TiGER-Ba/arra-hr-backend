@@ -51,9 +51,16 @@ def _get_employe(current_user: Utilisateur, db: Session) -> Employe:
     return emp
 
 
-def _compter(entries_types: dict, weekdays: list[date]) -> dict:
-    """entries_types = {iso_date: type}. Ne compte que les jours ouvrés."""
+def _compter(entries_types: dict, weekdays: list[date], feries: dict | None = None) -> dict:
+    """entries_types = {iso_date: type}. Ne compte que les jours ouvrés.
+
+    `feries` = {iso: libellé} : les fériés officiels comptent comme non travaillés
+    même s'ils n'ont pas encore été enregistrés par l'employé.
+    """
     wd = {d.isoformat() for d in weekdays}
+    if feries:
+        # Un féri officiel prime, sauf si l'employé a explicitement saisi autre chose
+        entries_types = {**{iso: "ferie" for iso in feries if iso in wd}, **entries_types}
     cp = ss = mal = fe = 0
     for iso, t in entries_types.items():
         if iso not in wd:
@@ -95,18 +102,33 @@ def ma_feuille(
     _, _, nb = _mois_bornes(annee, mois)
     entries = _entries(db, emp.id, annee, mois)
 
+    # Fériés officiels : pré-remplis automatiquement (l'employé n'a plus à les saisir)
+    from app.services.feries import feries_du_mois
+    feries = feries_du_mois(db, annee, mois)
+
     jours = []
     for d in range(1, nb + 1):
         jd = date(annee, mois, d)
+        iso = jd.isoformat()
         we = jd.weekday() >= 5
-        p = entries.get(jd.isoformat())
+        p = entries.get(iso)
+        ferie_libelle = feries.get(iso)
+        if p:
+            type_jour = p.type
+        elif we:
+            type_jour = None
+        elif ferie_libelle:
+            type_jour = "ferie"
+        else:
+            type_jour = "travaille"
         jours.append({
-            "date": jd.isoformat(),
+            "date": iso,
             "jour": d,
             "jour_semaine": JOURS_FR[jd.weekday()],
             "weekend": we,
-            "type": (p.type if p else ("travaille" if not we else None)),
+            "type": type_jour,
             "commentaire": p.commentaire if p else None,
+            "ferie": ferie_libelle,  # libellé officiel si le jour est férié
         })
 
     feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=annee, mois=mois).first()
@@ -115,7 +137,7 @@ def ma_feuille(
         "annee": annee, "mois": mois,
         "statut": feuille.statut if feuille else "brouillon",
         "jours": jours,
-        "resume": _compter(entries_types, _weekdays(annee, mois)),
+        "resume": _compter(entries_types, _weekdays(annee, mois), feries),
     }
 
 
@@ -233,13 +255,20 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
 
     feuilles = {f.employe_id: f.statut for f in db.query(FeuilleTemps).filter_by(annee=annee, mois=mois).all()}
 
+    # Fériés officiels du mois : non travaillés pour tout le monde, même si
+    # l'employé ne les a pas saisis (ils ne sont pas décomptés des congés).
+    from app.services.feries import feries_du_mois
+    feries_iso = set(feries_du_mois(db, annee, mois).keys()) & wd
+
     rows = []
     for emp in db.query(Employe).all():
         cnt = by_emp.get(emp.id, {})
         cp = cnt.get("conge_paye", 0)
         ss = cnt.get("conge_sans_solde", 0)
         mal = cnt.get("maladie", 0)
-        fe = cnt.get("ferie", 0)
+        # Fériés saisis + fériés officiels non saisis (sans double comptage)
+        saisis = {p.date_jour.isoformat() for p in pts if p.employe_id == emp.id}
+        fe = cnt.get("ferie", 0) + len(feries_iso - saisis)
         production = len(weekdays) - cp - ss - mal - fe
 
         solde = db.query(SoldeEmploye).filter_by(
@@ -285,6 +314,73 @@ def recap(
         "jours_ouvres": len(_weekdays(annee, mois)),
         "lignes": _rh_rows(db, annee, mois),
     }
+
+
+# ─── Jours fériés (RH) ───────────────────────────────────────────────────────
+
+class FerieCreate(BaseModel):
+    date_jour: str
+    libelle: str
+
+
+@router.get("/feries")
+def liste_feries(
+    annee: int,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Fériés de l'année. Les fériés fixes sont créés automatiquement au besoin."""
+    from app.models.pointage import JourFerie
+    from app.services.feries import FERIES_RELIGIEUX_LABELS, assurer_feries_fixes
+
+    _valider_periode(annee, 1)
+    assurer_feries_fixes(db, annee)
+    lignes = db.query(JourFerie).filter(JourFerie.annee == annee).order_by(JourFerie.date_jour).all()
+    return {
+        "annee": annee,
+        "feries": [
+            {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle, "fixe": f.fixe}
+            for f in lignes
+        ],
+        # Fêtes religieuses : dates variables (calendrier hégirien) → saisie manuelle
+        "suggestions_religieuses": FERIES_RELIGIEUX_LABELS,
+    }
+
+
+@router.post("/feries", status_code=201)
+def creer_ferie(
+    payload: FerieCreate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    from app.models.pointage import JourFerie
+    try:
+        jd = date.fromisoformat(payload.date_jour)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date invalide")
+    if not payload.libelle.strip():
+        raise HTTPException(status_code=400, detail="Le libellé est requis")
+    if db.query(JourFerie).filter(JourFerie.date_jour == jd).first():
+        raise HTTPException(status_code=400, detail="Ce jour est déjà déclaré férié")
+    f = JourFerie(date_jour=jd, libelle=payload.libelle.strip(), annee=jd.year, fixe=False)
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle, "fixe": f.fixe}
+
+
+@router.delete("/feries/{ferie_id}", status_code=204)
+def supprimer_ferie(
+    ferie_id: int,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    from app.models.pointage import JourFerie
+    f = db.query(JourFerie).filter(JourFerie.id == ferie_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Jour férié introuvable")
+    db.delete(f)
+    db.commit()
 
 
 @router.get("/export")

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -33,6 +33,21 @@ class Pointage(Base):
     date_jour: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     type: Mapped[str] = mapped_column(String(30), nullable=False)  # cf ABSENCE_TYPES
     commentaire: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class JourFerie(Base):
+    """Jour férié national. Les fêtes religieuses suivent le calendrier hégirien :
+    leur date grégorienne varie chaque année, elles sont donc saisies par le RH."""
+    __tablename__ = "jours_feries"
+    __table_args__ = (
+        UniqueConstraint("date_jour", name="uq_ferie_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    date_jour: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    libelle: Mapped[str] = mapped_column(String(100), nullable=False)
+    annee: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    fixe: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class FeuilleTemps(Base):

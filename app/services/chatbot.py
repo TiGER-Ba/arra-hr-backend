@@ -177,8 +177,18 @@ def _strip_think_tags(text: str) -> str:
     return THINK_TAG_PATTERN.sub("", text).strip()
 
 
-def _invoke_with_rotation(keys: list, model: str, messages: list) -> str:
-    """Essaie chaque clé Groq (principale puis secours) — bascule si quota / erreur."""
+def _modele_introuvable(err: Exception) -> bool:
+    """Détecte l'erreur « ce modèle n'existe plus » (Groq retire des modèles)."""
+    msg = str(err).lower()
+    return any(x in msg for x in ("model_not_found", "does not exist", "decommissioned", "404"))
+
+
+def _invoke_with_rotation(keys: list, model: str, messages: list, db: Session | None = None) -> str:
+    """Essaie chaque clé Groq (principale puis secours) — bascule si quota / erreur.
+
+    Si le modèle configuré a été retiré par Groq, on rebascule automatiquement
+    sur un modèle disponible au lieu de renvoyer une erreur à l'employé.
+    """
     last_err = None
     for key in keys:
         try:
@@ -188,6 +198,20 @@ def _invoke_with_rotation(keys: list, model: str, messages: list) -> str:
             return _strip_think_tags(raw)
         except Exception as e:  # noqa: BLE001
             last_err = e
+            # Modèle supprimé côté Groq → on en choisit un autre et on réessaie
+            if db is not None and _modele_introuvable(e):
+                try:
+                    from app.services.ia_providers import resoudre_modele_groq
+                    nouveau, avertissement = resoudre_modele_groq(db, key, model)
+                    if nouveau and nouveau != model:
+                        print(f"[chatbot] {avertissement}")
+                        model = nouveau
+                        llm = ChatGroq(model=model, api_key=key, temperature=0.1)
+                        response = llm.invoke(messages)
+                        raw = response.content if hasattr(response, "content") else str(response)
+                        return _strip_think_tags(raw)
+                except Exception as e2:  # noqa: BLE001
+                    last_err = e2
             continue
     raise last_err or RuntimeError("Aucune clé Groq configurée (Paramétrage IA)")
 
@@ -223,7 +247,7 @@ async def process_message(
 
     keys = groq_keys(db) or [settings.GROQ_API_KEY]
     model = groq_model(db)
-    clean_response = await run_in_threadpool(_invoke_with_rotation, keys, model, langchain_messages)
+    clean_response = await run_in_threadpool(_invoke_with_rotation, keys, model, langchain_messages, db)
 
     db.add(Message(conversation_id=conversation_id, role="assistant", contenu=clean_response))
     db.commit()

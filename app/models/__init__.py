@@ -11,7 +11,7 @@ from app.models.solde import SoldeEmploye, MouvementSolde
 from app.models.notification import Notification
 from app.models.parametrage import Parametrage
 from app.models.audit import JournalAudit
-from app.models.pointage import Pointage, FeuilleTemps
+from app.models.pointage import Pointage, FeuilleTemps, JourFerie
 
 __all__ = [
     "Utilisateur",
@@ -30,4 +30,5 @@ __all__ = [
     "JournalAudit",
     "Pointage",
     "FeuilleTemps",
+    "JourFerie",
 ]

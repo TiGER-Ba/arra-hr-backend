@@ -33,6 +33,7 @@ class UtilisateurOut(BaseModel):
 
     id: int
     nom: str
+    prenom: str | None = None
     email: str
     role: str
     is_active: bool
