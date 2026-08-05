@@ -21,6 +21,10 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # 🔒 Plafond mémoire : la RAM (8 Go) est PARTAGÉE avec la plateforme de
+    # recrutement. Sans limite, un pic ici pourrait déclencher l'OOM-killer du
+    # noyau, qui tuerait le plus gros processus de la machine — MySQL.
+    mem_limit: 512m
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -41,6 +45,10 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    # Poste le plus gourmand : génération PDF (WeasyPrint) et indexation RAG.
+    # Les embeddings sont calculés à DISTANCE (API HuggingFace) : aucun modèle
+    # n'est chargé en mémoire ici, d'où un plafond modeste qui suffit.
+    mem_limit: 1500m
     depends_on:
       db:
         condition: service_healthy
@@ -76,6 +84,8 @@ services:
         # ⚠️ Figé à la compilation : changer cette URL impose un --build
         NEXT_PUBLIC_API_URL: ${PUBLIC_URL}
     restart: unless-stopped
+    # Serveur Next.js « standalone » : empreinte mémoire faible et stable.
+    mem_limit: 512m
     depends_on:
       - api
     ports:
