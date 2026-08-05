@@ -1,0 +1,87 @@
+# ── ARRA ADMIN (plateforme RH) — déploiement VPS ─────────────────────────────
+# Projet Docker TOTALEMENT séparé de la plateforme de recrutement :
+#   projet « arra-admin » · réseau dédié · volumes dédiés · ports 8010-8011.
+#
+# Arborescence attendue sur le VPS :
+#   ~/arra-admin/
+#   ├── docker-compose.yml   (ce fichier)
+#   ├── .env                 (secrets — JAMAIS versionné)
+#   ├── backend/             git clone arra-hr-backend
+#   └── frontend/            git clone admin-rh-platform-frontend
+#
+# Commandes :
+#   docker compose up -d --build     démarrer
+#   docker compose logs -f api       suivre les journaux
+#   docker compose down              arrêter (les données restent)
+
+name: arra-admin
+
+services:
+  # ── Base de données dédiée ────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # 🔒 AUCUN port publié : la base n'est joignable que par le service `api`,
+    # depuis le réseau interne du projet. Rien n'est exposé à l'hôte.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ── API FastAPI ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Active les contrôles bloquants au démarrage (SECRET_KEY, ALLOWED_ORIGINS)
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}
+      # Origine exacte du frontend, sans « / » final. Sert aussi de base aux
+      # liens d'invitation envoyés par email.
+      ALLOWED_ORIGINS: ${PUBLIC_URL}
+      PORT: 7860
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      EMAIL_DOMAIN: ${EMAIL_DOMAIN:-arra-engineering.com}
+      # IA — modifiables ensuite depuis /rh/parametrage (la base prime sur l'env)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-huggingface}
+      HF_API_KEY: ${HF_API_KEY:-}
+      HF_EMBEDDING_MODEL: ${HF_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+    volumes:
+      # Persistance des PDF générés, du dépôt documentaire et de l'index RAG
+      - uploads:/home/user/app/uploads
+      - chroma:/home/user/app/chroma_db
+    ports:
+      - "127.0.0.1:8011:7860"   # jamais exposé publiquement — nginx fait le lien
+
+  # ── Frontend Next.js ──────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./frontend
+      args:
+        # ⚠️ Figé à la compilation : changer cette URL impose un --build
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8010:3000"
+
+volumes:
+  pgdata:
+  uploads:
+  chroma:
