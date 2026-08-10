@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  /* A4 paysage : 31 colonnes de jours ne tiennent pas en portrait. */
+  @page { size: A4 landscape; margin: 1.1cm 1.2cm 1.4cm 1.2cm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 8pt; color: #1a1a1a; }
+
+  .avertissement {
+    background: #fdf4e3; border: 1px solid #f0d9a8; border-radius: 4px;
+    padding: 6px 8px; font-size: 6.6pt; color: #7a4c06; margin-bottom: 10px;
+  }
+
+  .entete { margin-bottom: 10px; }
+  .societe { font-size: 12pt; font-weight: bold; letter-spacing: .5px; }
+  .titre { font-size: 11pt; font-weight: bold; margin-top: 6px; }
+
+  /* Métadonnées : table plutôt que flex (WeasyPrint gère mal flex) */
+  .meta { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 7.6pt; }
+  .meta td { padding: 2px 0; vertical-align: top; }
+  .meta .libelle { color: #666; width: 130px; }
+  .meta .valeur { font-weight: bold; }
+
+  table.grille { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.grille th, table.grille td {
+    border: 1px solid #bfbfbf; text-align: center; padding: 3px 0; font-size: 7pt;
+  }
+  table.grille th.activite, table.grille td.activite {
+    text-align: left; padding-left: 5px; width: 150px; font-size: 7.4pt;
+  }
+  table.grille thead th { background: #eceaf2; font-weight: bold; }
+  table.grille th.we, table.grille td.we { background: #f4f4f7; color: #9a9a9a; }
+  table.grille td.marque { font-weight: bold; }
+  table.grille td.total { background: #f7f7fb; font-weight: bold; width: 42px; }
+  .jours-ouvres { margin-top: 5px; font-size: 7.4pt; font-weight: bold; }
+
+  /* Totaux : deux colonnes via inline-block (fiable en PDF) */
+  .bloc-totaux { margin-top: 14px; font-size: 0; }
+  .colonne { display: inline-block; vertical-align: top; width: 49%; font-size: 7.6pt; }
+  .colonne + .colonne { margin-left: 2%; }
+  table.totaux { width: 100%; border-collapse: collapse; }
+  table.totaux th { background: #eceaf2; text-align: left; padding: 4px 6px; font-size: 7.6pt; border: 1px solid #bfbfbf; }
+  table.totaux td { border: 1px solid #bfbfbf; padding: 3px 6px; }
+  table.totaux td.n { text-align: right; width: 60px; }
+  table.totaux tr.somme td { background: #f7f7fb; font-weight: bold; }
+
+  .validations { margin-top: 16px; font-size: 0; page-break-inside: avoid; }
+  .validation { display: inline-block; vertical-align: top; width: 49%; font-size: 7.6pt; }
+  .validation + .validation { margin-left: 2%; }
+  .validation .cadre { border: 1px solid #bfbfbf; padding: 7px 9px; min-height: 62px; }
+  .validation .role { font-weight: bold; margin-bottom: 4px; }
+  .validation .nom { margin-bottom: 6px; }
+  .validation .ligne { color: #666; margin-top: 3px; }
+  .validation .etat { font-weight: bold; color: #0b7a4d; }
+  .validation img { max-height: 34px; max-width: 120px; vertical-align: middle; }
+
+  .pied {
+    position: fixed; bottom: 0.3cm; left: 0; right: 0;
+    text-align: center; font-size: 6.4pt; color: #777;
+    border-top: 1px solid #ccc; padding-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="avertissement">
+    Il est obligatoire de renseigner vos CRA correctement et dans les délais.
+    Toute erreur, omission ou donnée incorrecte relève entièrement de votre responsabilité
+    si aucun signalement n'est fait auprès de votre RH ou Manager.
+  </div>
+
+  <div class="entete">
+    <div class="societe">ARRA ENGINEERING</div>
+    <div class="titre">Feuille des temps de {{ prenom_nom }} — {{ mois_libelle }} {{ annee }}</div>
+  </div>
+
+  <table class="meta">
+    <tr>
+      <td class="libelle">Période :</td>
+      <td class="valeur">du 1 au {{ nb_jours }} {{ mois_libelle }} {{ annee }}</td>
+      <td class="libelle">Matricule :</td>
+      <td class="valeur">{{ matricule }}</td>
+    </tr>
+    <tr>
+      <td class="libelle">Agence :</td>
+      <td class="valeur">ARRA-ENGINEERING MAROC</td>
+      <td class="libelle">Poste :</td>
+      <td class="valeur">{{ poste }}</td>
+    </tr>
+    <tr>
+      <td class="libelle">Unité d'œuvre moyenne :</td>
+      <td class="valeur">1 u.o/jour</td>
+      <td class="libelle">Département :</td>
+      <td class="valeur">{{ departement }}</td>
+    </tr>
+  </table>
+
+  <table class="grille">
+    <thead>
+      <tr>
+        <th class="activite">Type d'activité</th>
+        {% for j in jours %}
+        <th class="{% if j.weekend %}we{% endif %}">{{ j.numero }}</th>
+        {% endfor %}
+        <th class="total">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ligne in lignes %}
+      <tr>
+        <td class="activite">{{ ligne.libelle }}</td>
+        {% for j in jours %}
+        <td class="{% if j.weekend %}we{% endif %}{% if ligne.jours.get(j.numero) %} marque{% endif %}">
+          {{ ligne.jours.get(j.numero, '') }}
+        </td>
+        {% endfor %}
+        <td class="total">{{ ligne.total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="jours-ouvres">Nb jours ouvrés : {{ jours_ouvres }}</div>
+
+  <div class="bloc-totaux">
+    <div class="colonne">
+      <table class="totaux">
+        <tr><th colspan="3">Récapitulatif</th></tr>
+        <tr>
+          <td>Production</td>
+          <td class="n">{{ production }} u.o</td>
+          <td class="n">{{ production }} j</td>
+        </tr>
+        <tr>
+          <td>Absence</td>
+          <td class="n">{{ total_absence }} u.o</td>
+          <td class="n">{{ total_absence }} j</td>
+        </tr>
+        <tr class="somme">
+          <td>TOTAL</td>
+          <td class="n">{{ jours_ouvres }} u.o</td>
+          <td class="n">{{ jours_ouvres }} j</td>
+        </tr>
+      </table>
+    </div>
+    <div class="colonne">
+      <table class="totaux">
+        <tr><th colspan="3">Détail des absences</th></tr>
+        {% if absences %}
+          {% for a in absences %}
+          <tr>
+            <td>{{ a.libelle }}</td>
+            <td class="n">{{ a.total }} u.o</td>
+            <td class="n">{{ a.total }} j</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="3" style="color:#777">Aucune absence sur la période</td></tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <div class="validations">
+    <div class="validation">
+      <div class="cadre">
+        <div class="role">Validation 1 — Salarié</div>
+        <div class="nom">{{ prenom_nom }}</div>
+        <div class="ligne">Date : {{ date_soumission or '—' }}</div>
+        <div class="ligne">Signature :
+          {% if statut == 'soumise' %}<span class="etat">Validée</span>{% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="validation">
+      <div class="cadre">
+        <div class="role">Validation 2 — Direction</div>
+        <div class="nom">{{ signataire_nom }}</div>
+        <div class="ligne">Date : {{ date_generation }}</div>
+        <div class="ligne">Signature :
+          {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+          {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pied">
+    ARRA ENGINEERING SARL (AU) — Capital 100 000 DH — RC n° 119431 —
+    Technopark, Bd Dammam, Casablanca · Document généré le {{ date_generation }}
+  </div>
+
+</body>
+</html>

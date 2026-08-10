@@ -316,6 +316,79 @@ def recap(
     }
 
 
+# ─── CRA : feuille des temps en PDF ──────────────────────────────────────────
+
+def _reponse_cra(db: Session, emp: Employe, annee: int, mois: int, inline: bool):
+    from app.services.cra import generer_pdf_cra, nom_fichier_cra
+
+    try:
+        pdf = generer_pdf_cra(db, emp, annee, mois)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    nom = nom_fichier_cra(emp, annee, mois)
+    disposition = "inline" if inline else "attachment"
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{nom}"'},
+    )
+
+
+@router.get("/cra")
+def cra_employe(
+    annee: int, mois: int, employe_id: int,
+    inline: bool = False,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """CRA d'un salarié (RH/admin) — feuille des temps détaillée du mois."""
+    _valider_periode(annee, mois)
+    emp = db.query(Employe).filter(Employe.id == employe_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employé introuvable")
+    return _reponse_cra(db, emp, annee, mois, inline)
+
+
+@router.get("/ma-cra")
+def ma_cra(
+    annee: int, mois: int,
+    inline: bool = False,
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Le salarié télécharge son propre CRA."""
+    _valider_periode(annee, mois)
+    return _reponse_cra(db, _get_employe(current_user, db), annee, mois, inline)
+
+
+@router.get("/cra-tous")
+def cra_tous(
+    annee: int, mois: int,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Archive ZIP des CRA de tous les salariés du mois (un PDF par salarié)."""
+    import zipfile
+
+    from app.services.cra import generer_pdf_cra, nom_fichier_cra
+
+    _valider_periode(annee, mois)
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as archive:
+        for emp in db.query(Employe).all():
+            try:
+                archive.writestr(nom_fichier_cra(emp, annee, mois), generer_pdf_cra(db, emp, annee, mois))
+            except Exception as e:  # noqa: BLE001
+                # Un salarié en erreur ne doit pas faire échouer toute l'archive
+                print(f"[cra] échec pour l'employé {emp.id} : {e}")
+    tampon.seek(0)
+    return StreamingResponse(
+        tampon,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="CRA_{annee}_{mois:02d}.zip"'},
+    )
+
+
 # ─── Jours fériés (RH) ───────────────────────────────────────────────────────
 
 class FerieCreate(BaseModel):
