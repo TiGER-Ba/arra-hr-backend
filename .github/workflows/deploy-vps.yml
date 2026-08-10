@@ -1,0 +1,41 @@
+name: Déploiement VPS (arra-admin)
+
+# Déclenché à chaque push sur main, ou manuellement depuis l'onglet Actions.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Deux déploiements ne doivent jamais se chevaucher sur le VPS.
+concurrency:
+  group: deploiement-vps-arra-admin
+  cancel-in-progress: false
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # GARDE-FOU : si le code ne compile pas, on s'arrête ICI.
+      # Le VPS n'est pas contacté, la version en ligne reste intacte.
+      - name: Garde-fou — syntaxe Python
+        run: python -m compileall app seed.py
+
+      - name: Déclencher le déploiement sur le VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Seul le backend a changé : on ne reconstruit que l'API.
+          # (La clé est verrouillée côté VPS par une « forced command » : cette
+          #  valeur sert uniquement à choisir la cible du rebuild.)
+          script: api
+          command_timeout: 20m
