@@ -227,8 +227,16 @@ async def process_message(
     db.add(Message(conversation_id=conversation_id, role="user", contenu=user_message))
     db.commit()
 
-    rag_service = get_rag_service()
-    rag_context = rag_service.query(user_message)
+    # ⚠️ La base de connaissances est FACULTATIVE : sans clé d'embeddings (ou en
+    # cas de panne du service), le chatbot doit CONTINUER à répondre aux
+    # questions personnelles — soldes, ancienneté, demandes, documents — qui ne
+    # dépendent que de la base de données. Une exception ici ne doit jamais
+    # faire échouer toute la conversation.
+    rag_context = ""
+    try:
+        rag_context = get_rag_service().query(user_message)
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatbot] base de connaissances indisponible, réponse sans contexte documentaire : {e}")
 
     history = (
         db.query(Message)
@@ -247,7 +255,27 @@ async def process_message(
 
     keys = groq_keys(db) or [settings.GROQ_API_KEY]
     model = groq_model(db)
-    clean_response = await run_in_threadpool(_invoke_with_rotation, keys, model, langchain_messages, db)
+    if not any(k.strip() for k in keys):
+        return {
+            "message": "L'assistant n'est pas encore configuré. "
+                       "Un administrateur doit renseigner la clé Groq dans Paramétrage → Assistant IA.",
+            "demande_created": False,
+        }
+
+    try:
+        clean_response = await run_in_threadpool(_invoke_with_rotation, keys, model, langchain_messages, db)
+    except Exception as e:  # noqa: BLE001
+        # Message lisible plutôt qu'une erreur 500 opaque côté navigateur.
+        print(f"[chatbot] échec de l'appel au modèle : {e}")
+        detail = str(e).lower()
+        if "rate" in detail or "429" in detail or "quota" in detail:
+            msg = "Le service d'IA a atteint sa limite d'utilisation. Réessayez dans quelques minutes."
+        elif "401" in detail or "invalid api key" in detail or "authentication" in detail:
+            msg = ("La clé du service d'IA est invalide ou expirée. "
+                   "Un administrateur doit la vérifier dans Paramétrage → Assistant IA.")
+        else:
+            msg = "L'assistant est momentanément indisponible. Réessayez dans un instant."
+        return {"message": msg, "demande_created": False}
 
     db.add(Message(conversation_id=conversation_id, role="assistant", contenu=clean_response))
     db.commit()
