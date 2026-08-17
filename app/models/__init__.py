@@ -12,6 +12,7 @@ from app.models.notification import Notification
 from app.models.parametrage import Parametrage
 from app.models.audit import JournalAudit
 from app.models.pointage import Pointage, FeuilleTemps, JourFerie
+from app.models.crm import Societe, Projet, Affectation
 
 __all__ = [
     "Utilisateur",
@@ -31,4 +32,7 @@ __all__ = [
     "Pointage",
     "FeuilleTemps",
     "JourFerie",
+    "Societe",
+    "Projet",
+    "Affectation",
 ]

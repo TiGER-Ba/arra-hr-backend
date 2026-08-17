@@ -16,9 +16,14 @@ employe = types.SimpleNamespace(
 
 
 class Pointage:
-    def __init__(self, jour, type_):
+    """Reflète le modèle v2 : catégorie, projet éventuel et valeur (0,5 ou 1)."""
+
+    def __init__(self, jour, type_, categorie="absence", projet_id=None, valeur=1.0):
         self.date_jour = date(2026, 7, jour)
         self.type = type_
+        self.categorie = categorie
+        self.projet_id = projet_id
+        self.valeur = valeur
         self.employe_id = 1
 
 
@@ -41,8 +46,12 @@ class FakeDB:
     def commit(self): pass
 
 
-# Juillet 2026 : congés payés les 6, 7, 8
-pointages = [Pointage(6, "conge_paye"), Pointage(7, "conge_paye"), Pointage(8, "conge_paye")]
+# Juillet 2026 : 3 j de congés payés, et une journée partagée entre 2 projets
+pointages = [
+    Pointage(6, "conge_paye"), Pointage(7, "conge_paye"), Pointage(8, "conge_paye"),
+    Pointage(20, "normale", categorie="production", projet_id=1, valeur=0.5),
+    Pointage(20, "normale", categorie="production", projet_id=2, valeur=0.5),
+]
 cra.feries_du_mois = lambda db, a, m: {}
 import app.services.feries as feries_mod
 feries_mod.feries_du_mois = lambda db, a, m: {}
@@ -62,10 +71,13 @@ if donnees["nb_jours"] != 31:
     ok = False; print("  ECHEC nb_jours")
 if donnees["jours_ouvres"] != 23:
     ok = False; print(f"  ECHEC jours_ouvres = {donnees['jours_ouvres']} (attendu 23)")
-if donnees["production"] + donnees["total_absence"] != donnees["jours_ouvres"]:
+if float(donnees["production"]) + float(donnees["total_absence"]) != donnees["jours_ouvres"]:
     ok = False; print("  ECHEC production + absences != jours ouvrés")
-if donnees["total_absence"] != 3:
+if float(donnees["total_absence"]) != 3:
     ok = False; print(f"  ECHEC absences = {donnees['total_absence']} (attendu 3)")
+# La journée du 20 est partagée 0,5 + 0,5 : elle doit compter pour 1 jour au total
+if len([l for l in donnees["lignes"] if l["categorie"] == "production"]) < 2:
+    ok = False; print("  ECHEC les deux projets du 20 ne forment pas deux lignes")
 
 # ── Rendu HTML ──────────────────────────────────────────────────────────────
 print("\n— Rendu HTML —")

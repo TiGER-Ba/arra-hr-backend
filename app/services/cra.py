@@ -61,37 +61,66 @@ def construire_donnees_cra(db: Session, employe: Employe, annee: int, mois: int)
     ]
     ouvres = {j["numero"] for j in jours if not j["weekend"]}
 
-    # Absences saisies par l'employé
+    # Saisies du mois (production sur projet, absences, activités internes)
     saisies = db.query(Pointage).filter(
         Pointage.employe_id == employe.id,
         Pointage.date_jour >= debut, Pointage.date_jour <= fin,
     ).all()
-    par_type: dict[str, dict[int, int]] = {}
-    for p in saisies:
-        if p.date_jour.day in ouvres:
-            par_type.setdefault(p.type, {})[p.date_jour.day] = 1
 
-    # Fériés officiels non saisis : ils comptent aussi comme non travaillés
+    # Regroupement en lignes de grille, comme dans la feuille de temps
+    from app.models.crm import Projet
+    from app.models.pointage import LIBELLES_INTERNE
+
+    groupes: dict[tuple, dict] = {}
+    for p in saisies:
+        if p.date_jour.day not in ouvres:
+            continue
+        categorie = p.categorie or "absence"
+        cle = (categorie, p.projet_id, p.type)
+        if cle not in groupes:
+            if categorie == "production" and p.projet_id:
+                projet = db.query(Projet).filter(Projet.id == p.projet_id).first()
+                libelle = projet.libelle if projet else f"Projet #{p.projet_id}"
+            elif categorie == "interne":
+                libelle = f"Interne - {LIBELLES_INTERNE.get(p.type, p.type.capitalize())}"
+            else:
+                libelle = LIBELLES.get(p.type, f"Absence - {p.type}")
+            groupes[cle] = {"libelle": libelle, "categorie": categorie, "jours": {}, "total": 0.0}
+        val = float(p.valeur or 1)
+        groupes[cle]["jours"][p.date_jour.day] = val
+        groupes[cle]["total"] += val
+
+    # Fériés officiels non saisis : non travaillés, sans écraser une saisie
+    couverts = {j for g in groupes.values() for j in g["jours"]}
     for iso in feries_du_mois(db, annee, mois):
         jour = date.fromisoformat(iso).day
-        if jour in ouvres and not any(jour in v for v in par_type.values()):
-            par_type.setdefault("ferie", {})[jour] = 1
+        if jour in ouvres and jour not in couverts:
+            cle = ("absence", None, "ferie")
+            groupes.setdefault(cle, {"libelle": LIBELLES["ferie"], "categorie": "absence",
+                                     "jours": {}, "total": 0.0})
+            groupes[cle]["jours"][jour] = 1.0
+            groupes[cle]["total"] += 1.0
 
-    # Jours travaillés = jours ouvrés non couverts par une absence
-    absents = {j for m in par_type.values() for j in m}
-    production_jours = {j: 1 for j in sorted(ouvres - absents)}
+    # Jours ouvrés non couverts = production non affectée à un projet
+    couverts = {j for g in groupes.values() for j in g["jours"]}
+    restants = {j: 1.0 for j in sorted(ouvres - couverts)}
+    if restants:
+        groupes[("production", None, "normale")] = {
+            "libelle": "Production - Activité", "categorie": "production",
+            "jours": restants, "total": float(len(restants)),
+        }
 
-    lignes = [{
-        "libelle": "Production - Activité",
-        "jours": production_jours,
-        "total": len(production_jours),
-    }]
-    absences = []
-    for cle in ORDRE:
-        if cle in par_type:
-            total = len(par_type[cle])
-            lignes.append({"libelle": LIBELLES[cle], "jours": par_type[cle], "total": total})
-            absences.append({"libelle": LIBELLES[cle].replace("Absence - ", ""), "total": total})
+    ordre_cat = {"production": 0, "interne": 1, "absence": 2}
+    lignes = sorted(groupes.values(), key=lambda g: (ordre_cat.get(g["categorie"], 9), g["libelle"]))
+
+    absences = [
+        {"libelle": g["libelle"].replace("Absence - ", ""), "total": g["total"]}
+        for g in lignes if g["categorie"] == "absence"
+    ]
+    # Totaux en JOURS et non en nombre de lignes : une demi-journée vaut 0,5
+    total_production = sum(g["total"] for g in lignes if g["categorie"] == "production")
+    total_absences = sum(g["total"] for g in lignes if g["categorie"] == "absence")
+    total_interne = sum(g["total"] for g in lignes if g["categorie"] == "interne")
 
     feuille = db.query(FeuilleTemps).filter_by(
         employe_id=employe.id, annee=annee, mois=mois
@@ -115,8 +144,9 @@ def construire_donnees_cra(db: Session, employe: Employe, annee: int, mois: int)
         "jours_ouvres": len(ouvres),
         "lignes": lignes,
         "absences": absences,
-        "production": len(production_jours),
-        "total_absence": len(absents),
+        "production": f"{total_production:g}",
+        "total_absence": f"{total_absences:g}",
+        "total_interne": f"{total_interne:g}",
         "statut": feuille.statut if feuille else "brouillon",
         "date_soumission": (
             feuille.updated_at.strftime("%d/%m/%Y")

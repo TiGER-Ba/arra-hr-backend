@@ -51,45 +51,158 @@ def _get_employe(current_user: Utilisateur, db: Session) -> Employe:
     return emp
 
 
-def _compter(entries_types: dict, weekdays: list[date], feries: dict | None = None) -> dict:
-    """entries_types = {iso_date: type}. Ne compte que les jours ouvrés.
-
-    `feries` = {iso: libellé} : les fériés officiels comptent comme non travaillés
-    même s'ils n'ont pas encore été enregistrés par l'employé.
-    """
-    wd = {d.isoformat() for d in weekdays}
-    if feries:
-        # Un féri officiel prime, sauf si l'employé a explicitement saisi autre chose
-        entries_types = {**{iso: "ferie" for iso in feries if iso in wd}, **entries_types}
-    cp = ss = mal = fe = 0
-    for iso, t in entries_types.items():
-        if iso not in wd:
-            continue
-        if t == "conge_paye":
-            cp += 1
-        elif t == "conge_sans_solde":
-            ss += 1
-        elif t == "maladie":
-            mal += 1
-        elif t == "ferie":
-            fe += 1
-    production = len(weekdays) - cp - ss - mal - fe
-    return {
-        "jours_ouvres": len(weekdays), "production": production,
-        "conge_paye": cp, "conge_sans_solde": ss, "maladie": mal, "ferie": fe,
-    }
-
-
-def _entries(db: Session, employe_id: int, annee: int, mois: int) -> dict:
+def _saisies(db: Session, employe_id: int, annee: int, mois: int) -> list[Pointage]:
     debut, fin, _ = _mois_bornes(annee, mois)
-    rows = db.query(Pointage).filter(
+    return db.query(Pointage).filter(
         Pointage.employe_id == employe_id,
         Pointage.date_jour >= debut, Pointage.date_jour <= fin,
     ).all()
-    return {p.date_jour.isoformat(): p for p in rows}
+
+
+def _cle_ligne(p: Pointage) -> tuple:
+    """Identifie la ligne de la grille à laquelle appartient une saisie."""
+    return (p.categorie or "absence", p.projet_id, p.type)
+
+
+def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict) -> dict:
+    """Totaux du mois, en JOURS (une saisie vaut 0,5 ou 1).
+
+    Les fériés officiels non saisis sont ajoutés : ils ne sont ni travaillés ni
+    décomptés des congés.
+    """
+    ouvres = {d.isoformat() for d in weekdays}
+    saisis = {p.date_jour.isoformat() for p in saisies}
+
+    par_categorie = {"production": 0.0, "absence": 0.0, "interne": 0.0}
+    par_type: dict[str, float] = {}
+    for p in saisies:
+        if p.date_jour.isoformat() not in ouvres:
+            continue
+        val = float(p.valeur or 1)
+        par_categorie[p.categorie or "absence"] = par_categorie.get(p.categorie or "absence", 0.0) + val
+        par_type[p.type] = par_type.get(p.type, 0.0) + val
+
+    feries_implicites = len([iso for iso in feries if iso in ouvres and iso not in saisis])
+    if feries_implicites:
+        par_categorie["absence"] += feries_implicites
+        par_type["ferie"] = par_type.get("ferie", 0.0) + feries_implicites
+
+    attendu = float(len(weekdays))
+    realise = par_categorie["production"] + par_categorie["absence"] + par_categorie["interne"]
+    return {
+        "jours_ouvres": attendu,
+        "production": par_categorie["production"],
+        "absence": par_categorie["absence"],
+        "interne": par_categorie["interne"],
+        "realise": realise,
+        # Jauge de complétion, comme dans Boond
+        "completion": round((realise / attendu) * 100) if attendu else 0,
+        "par_type": par_type,
+        # Compteurs conservés pour l'export paie et le CRA
+        "conge_paye": par_type.get("conge_paye", 0.0),
+        "conge_sans_solde": par_type.get("conge_sans_solde", 0.0),
+        "maladie": par_type.get("maladie", 0.0),
+        "ferie": par_type.get("ferie", 0.0),
+    }
 
 
 # ─── Employé ─────────────────────────────────────────────────────────────────
+
+def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dict:
+    """Grille mensuelle façon Boond : des LIGNES (projet ou absence) × des JOURS."""
+    from app.models.crm import Affectation, Projet
+    from app.models.pointage import LIBELLES_ABSENCE, LIBELLES_INTERNE
+    from app.services.feries import feries_du_mois
+
+    _, _, nb = _mois_bornes(annee, mois)
+    feries = feries_du_mois(db, annee, mois)
+
+    jours = []
+    for d in range(1, nb + 1):
+        jd = date(annee, mois, d)
+        iso = jd.isoformat()
+        jours.append({
+            "date": iso,
+            "jour": d,
+            "jour_semaine": JOURS_FR[jd.weekday()],
+            "semaine": jd.isocalendar()[1],   # numéro de semaine (S31, S32…)
+            "weekend": jd.weekday() >= 5,
+            "ferie": feries.get(iso),
+        })
+
+    saisies = _saisies(db, emp.id, annee, mois)
+
+    # Regroupement des saisies en lignes de grille
+    groupes: dict[tuple, dict] = {}
+    for p in saisies:
+        cle = _cle_ligne(p)
+        if cle not in groupes:
+            categorie, projet_id, type_ = cle
+            if categorie == "production" and projet_id:
+                projet = db.query(Projet).filter(Projet.id == projet_id).first()
+                libelle = projet.libelle if projet else f"Projet #{projet_id}"
+            elif categorie == "interne":
+                libelle = LIBELLES_INTERNE.get(type_, type_.capitalize())
+            else:
+                libelle = LIBELLES_ABSENCE.get(type_, type_.capitalize())
+            groupes[cle] = {
+                "categorie": categorie, "projet_id": projet_id, "type": type_,
+                "libelle": libelle, "jours": {}, "total": 0.0,
+            }
+        val = float(p.valeur or 1)
+        groupes[cle]["jours"][p.date_jour.day] = val
+        groupes[cle]["total"] += val
+
+    # Ligne « Férié » implicite : les fériés officiels non saisis
+    ouvres = {d.isoformat() for d in _weekdays(annee, mois)}
+    saisis = {p.date_jour.isoformat() for p in saisies}
+    implicites = {
+        date.fromisoformat(iso).day: 1.0
+        for iso in feries if iso in ouvres and iso not in saisis
+    }
+    if implicites:
+        cle = ("absence", None, "ferie")
+        if cle in groupes:
+            groupes[cle]["jours"].update(implicites)
+            groupes[cle]["total"] += len(implicites)
+        else:
+            groupes[cle] = {
+                "categorie": "absence", "projet_id": None, "type": "ferie",
+                "libelle": "Férié", "jours": implicites, "total": float(len(implicites)),
+                "automatique": True,
+            }
+
+    ordre = {"production": 0, "interne": 1, "absence": 2}
+    lignes = sorted(groupes.values(), key=lambda l: (ordre.get(l["categorie"], 9), l["libelle"]))
+
+    # Projets sur lesquels ce salarié peut pointer
+    affectations = db.query(Affectation).filter(
+        Affectation.employe_id == emp.id, Affectation.actif == True,  # noqa: E712
+    ).all()
+    projets_dispo = []
+    for a in affectations:
+        p = db.query(Projet).filter(Projet.id == a.projet_id).first()
+        if p and p.statut != "archive":
+            projets_dispo.append({"id": p.id, "libelle": p.libelle, "reference": p.reference})
+
+    feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=annee, mois=mois).first()
+    return {
+        "annee": annee, "mois": mois,
+        "employe": {
+            "id": emp.id, "matricule": emp.matricule,
+            "nom": (
+                f"{(emp.utilisateur.prenom + ' ') if emp.utilisateur and emp.utilisateur.prenom else ''}"
+                f"{emp.utilisateur.nom if emp.utilisateur else ''}"
+            ).strip(),
+        },
+        "statut": feuille.statut if feuille else "brouillon",
+        "motif_rejet": feuille.motif_rejet if feuille else None,
+        "jours": jours,
+        "lignes": lignes,
+        "projets_disponibles": projets_dispo,
+        "resume": _totaux(saisies, _weekdays(annee, mois), feries),
+    }
+
 
 @router.get("/ma-feuille")
 def ma_feuille(
@@ -98,47 +211,21 @@ def ma_feuille(
     db: Session = Depends(get_db),
 ):
     _valider_periode(annee, mois)
-    emp = _get_employe(current_user, db)
-    _, _, nb = _mois_bornes(annee, mois)
-    entries = _entries(db, emp.id, annee, mois)
+    return _construire_feuille(db, _get_employe(current_user, db), annee, mois)
 
-    # Fériés officiels : pré-remplis automatiquement (l'employé n'a plus à les saisir)
-    from app.services.feries import feries_du_mois
-    feries = feries_du_mois(db, annee, mois)
 
-    jours = []
-    for d in range(1, nb + 1):
-        jd = date(annee, mois, d)
-        iso = jd.isoformat()
-        we = jd.weekday() >= 5
-        p = entries.get(iso)
-        ferie_libelle = feries.get(iso)
-        if p:
-            type_jour = p.type
-        elif we:
-            type_jour = None
-        elif ferie_libelle:
-            type_jour = "ferie"
-        else:
-            type_jour = "travaille"
-        jours.append({
-            "date": iso,
-            "jour": d,
-            "jour_semaine": JOURS_FR[jd.weekday()],
-            "weekend": we,
-            "type": type_jour,
-            "commentaire": p.commentaire if p else None,
-            "ferie": ferie_libelle,  # libellé officiel si le jour est férié
-        })
-
-    feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=annee, mois=mois).first()
-    entries_types = {k: v.type for k, v in entries.items()}
-    return {
-        "annee": annee, "mois": mois,
-        "statut": feuille.statut if feuille else "brouillon",
-        "jours": jours,
-        "resume": _compter(entries_types, _weekdays(annee, mois), feries),
-    }
+@router.get("/feuille/{employe_id}")
+def feuille_employe(
+    employe_id: int, annee: int, mois: int,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """La même grille, consultée par le RH pour contrôler avant validation."""
+    _valider_periode(annee, mois)
+    emp = db.query(Employe).filter(Employe.id == employe_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employé introuvable")
+    return _construire_feuille(db, emp, annee, mois)
 
 
 class JourEntry(BaseModel):
@@ -147,15 +234,30 @@ class JourEntry(BaseModel):
     commentaire: str | None = None
 
 
+class LigneSaisie(BaseModel):
+    """Une ligne de la grille : un projet OU un type d'absence, et ses jours."""
+    categorie: str                 # production | absence | interne
+    type: str                      # « normale », ou type d'absence/interne
+    projet_id: int | None = None   # requis si categorie == production
+    jours: dict[str, float] = {}   # { "12": 1, "13": 0.5 }
+
+
 class FeuilleSave(BaseModel):
     annee: int
     mois: int
-    entrees: list[JourEntry] = []
+    lignes: list[LigneSaisie] = []
 
 
 class PeriodeBody(BaseModel):
     annee: int
     mois: int
+
+
+class RejetBody(BaseModel):
+    annee: int
+    mois: int
+    employe_id: int
+    motif: str
 
 
 @router.put("/ma-feuille")
@@ -164,45 +266,91 @@ def enregistrer_feuille(
     current_user: Utilisateur = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.models.crm import Affectation
+    from app.models.pointage import CATEGORIES
+
     _valider_periode(payload.annee, payload.mois)
     emp = _get_employe(current_user, db)
-    feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=payload.annee, mois=payload.mois).first()
-    if feuille and feuille.statut == "soumise":
-        raise HTTPException(status_code=400, detail="Feuille déjà soumise. Rouvrez-la pour la modifier.")
+    feuille = db.query(FeuilleTemps).filter_by(
+        employe_id=emp.id, annee=payload.annee, mois=payload.mois
+    ).first()
+    if feuille and feuille.statut in ("soumise", "validee"):
+        raise HTTPException(
+            status_code=400,
+            detail="Feuille déjà soumise ou validée. Rouvrez-la pour la modifier.",
+        )
 
-    debut, fin, _ = _mois_bornes(payload.annee, payload.mois)
-    valides: dict[str, tuple] = {}
-    for e in payload.entrees:
-        try:
-            jd = date.fromisoformat(e.date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Date invalide : {e.date}")
-        if jd < debut or jd > fin:
-            raise HTTPException(status_code=400, detail="Date hors du mois")
-        if jd.weekday() >= 5 or e.type == "travaille":
-            continue  # week-end ou jour travaillé → non stocké
-        if e.type not in ABSENCE_TYPES:
-            raise HTTPException(status_code=400, detail=f"Type invalide : {e.type}")
-        valides[jd.isoformat()] = (jd, e.type, (e.commentaire or None))
+    debut, fin, nb = _mois_bornes(payload.annee, payload.mois)
+    projets_autorises = {
+        a.projet_id for a in db.query(Affectation).filter(
+            Affectation.employe_id == emp.id, Affectation.actif == True,  # noqa: E712
+        ).all()
+    }
 
-    # Remplace intégralement le mois
+    nouvelles: list[Pointage] = []
+    total_par_jour: dict[int, float] = {}
+
+    for ligne in payload.lignes:
+        if ligne.categorie not in CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Catégorie invalide : {ligne.categorie}")
+        if ligne.categorie == "production":
+            if not ligne.projet_id:
+                raise HTTPException(status_code=400, detail="Un projet est requis pour une ligne de production")
+            # ⚠️ On ne se fie pas au client : le salarié ne peut pointer que sur
+            # les projets auxquels il est réellement affecté.
+            if ligne.projet_id not in projets_autorises:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Vous n'êtes pas affecté à ce projet",
+                )
+
+        for jour_str, valeur in ligne.jours.items():
+            try:
+                jour = int(jour_str)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"Jour invalide : {jour_str}")
+            if not (1 <= jour <= nb):
+                raise HTTPException(status_code=400, detail=f"Jour hors du mois : {jour}")
+            val = float(valeur or 0)
+            if val <= 0:
+                continue
+            if val not in (0.5, 1.0):
+                raise HTTPException(status_code=400, detail="Seules les valeurs 0,5 et 1 sont acceptées")
+            jd = date(payload.annee, payload.mois, jour)
+            if jd.weekday() >= 5:
+                continue  # week-end : non pointable
+            total_par_jour[jour] = total_par_jour.get(jour, 0.0) + val
+            nouvelles.append(Pointage(
+                employe_id=emp.id, date_jour=jd,
+                categorie=ligne.categorie, type=ligne.type,
+                projet_id=ligne.projet_id if ligne.categorie == "production" else None,
+                valeur=val,
+            ))
+
+    # Cohérence : on ne peut pas déclarer plus d'une journée sur une même date
+    trop = [j for j, total in total_par_jour.items() if total > 1.0]
+    if trop:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Plus d'une journée déclarée le(s) jour(s) : {', '.join(map(str, sorted(trop)))}",
+        )
+
+    # Remplacement intégral du mois
     db.query(Pointage).filter(
         Pointage.employe_id == emp.id,
         Pointage.date_jour >= debut, Pointage.date_jour <= fin,
     ).delete(synchronize_session=False)
-    for jd, t, com in valides.values():
-        db.add(Pointage(employe_id=emp.id, date_jour=jd, type=t, commentaire=com))
+    for p in nouvelles:
+        db.add(p)
     if not feuille:
-        feuille = FeuilleTemps(employe_id=emp.id, annee=payload.annee, mois=payload.mois, statut="brouillon")
+        feuille = FeuilleTemps(
+            employe_id=emp.id, annee=payload.annee, mois=payload.mois, statut="brouillon"
+        )
         db.add(feuille)
+    feuille.motif_rejet = None
     db.commit()
 
-    entries_types = {k: v[1] for k, v in valides.items()}
-    return {
-        "message": "Feuille enregistrée",
-        "statut": feuille.statut,
-        "resume": _compter(entries_types, _weekdays(payload.annee, payload.mois)),
-    }
+    return {"message": "Feuille enregistrée", "statut": feuille.statut}
 
 
 @router.post("/ma-feuille/soumettre")
@@ -213,12 +361,27 @@ def soumettre_feuille(
 ):
     _valider_periode(payload.annee, payload.mois)
     emp = _get_employe(current_user, db)
-    feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=payload.annee, mois=payload.mois).first()
+    feuille = db.query(FeuilleTemps).filter_by(
+        employe_id=emp.id, annee=payload.annee, mois=payload.mois
+    ).first()
     if not feuille:
         feuille = FeuilleTemps(employe_id=emp.id, annee=payload.annee, mois=payload.mois)
         db.add(feuille)
     feuille.statut = "soumise"
+    feuille.motif_rejet = None
     db.commit()
+
+    # Prévenir le service RH qu'une feuille attend une validation
+    try:
+        from app.services.notifications import notifier_rh
+        notifier_rh(
+            db=db, type="feuille_soumise", titre="Feuille de temps à valider",
+            message=f"{emp.utilisateur.nom if emp.utilisateur else 'Un salarié'} a soumis sa feuille "
+                    f"de {payload.mois:02d}/{payload.annee}.",
+            lien="/rh/pointage",
+        )
+    except Exception:
+        pass
     return {"message": "Feuille soumise", "statut": "soumise"}
 
 
@@ -230,46 +393,131 @@ def rouvrir_feuille(
 ):
     _valider_periode(payload.annee, payload.mois)
     emp = _get_employe(current_user, db)
-    feuille = db.query(FeuilleTemps).filter_by(employe_id=emp.id, annee=payload.annee, mois=payload.mois).first()
+    feuille = db.query(FeuilleTemps).filter_by(
+        employe_id=emp.id, annee=payload.annee, mois=payload.mois
+    ).first()
     if feuille:
+        if feuille.statut == "validee":
+            raise HTTPException(
+                status_code=400,
+                detail="Cette feuille a été validée par le service RH : elle n'est plus modifiable.",
+            )
         feuille.statut = "brouillon"
         db.commit()
     return {"message": "Feuille rouverte", "statut": "brouillon"}
 
 
+# ─── Validation par le RH ────────────────────────────────────────────────────
+
+def _feuille_ou_404(db: Session, employe_id: int, annee: int, mois: int) -> FeuilleTemps:
+    feuille = db.query(FeuilleTemps).filter_by(
+        employe_id=employe_id, annee=annee, mois=mois
+    ).first()
+    if not feuille:
+        raise HTTPException(status_code=404, detail="Aucune feuille pour cette période")
+    return feuille
+
+
+@router.post("/valider")
+def valider_feuille(
+    payload: RejetBody | PeriodeBody | dict,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Valide la feuille d'un salarié (RH/admin). Elle devient non modifiable."""
+    from datetime import datetime as _dt
+
+    annee = int(payload.get("annee")) if isinstance(payload, dict) else payload.annee
+    mois = int(payload.get("mois")) if isinstance(payload, dict) else payload.mois
+    employe_id = int(payload.get("employe_id")) if isinstance(payload, dict) else getattr(payload, "employe_id", None)
+    if not employe_id:
+        raise HTTPException(status_code=400, detail="employe_id requis")
+    _valider_periode(annee, mois)
+
+    feuille = _feuille_ou_404(db, employe_id, annee, mois)
+    if feuille.statut != "soumise":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Seule une feuille soumise peut être validée (statut actuel : {feuille.statut}).",
+        )
+    feuille.statut = "validee"
+    feuille.valide_par_id = current_user.id
+    feuille.valide_le = _dt.now()
+    feuille.motif_rejet = None
+
+    from app.services.audit import log_action
+    log_action(db, current_user, "feuille.valider", cible_type="feuille_temps",
+               cible_id=feuille.id, cible_libelle=f"{mois:02d}/{annee} — employé {employe_id}")
+    db.commit()
+
+    emp = db.query(Employe).filter(Employe.id == employe_id).first()
+    if emp and emp.utilisateur:
+        from app.services.notifications import notifier
+        notifier(db=db, utilisateur_id=emp.utilisateur.id, type="feuille_validee",
+                 titre="Feuille de temps validée",
+                 message=f"Votre feuille de {mois:02d}/{annee} a été validée.",
+                 lien="/employe/pointage")
+    return {"message": "Feuille validée", "statut": "validee"}
+
+
+@router.post("/rejeter")
+def rejeter_feuille(
+    payload: RejetBody,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Rejette la feuille avec un motif : elle repasse en brouillon côté salarié."""
+    _valider_periode(payload.annee, payload.mois)
+    if not payload.motif.strip():
+        raise HTTPException(status_code=400, detail="Le motif du rejet est requis")
+
+    feuille = _feuille_ou_404(db, payload.employe_id, payload.annee, payload.mois)
+    if feuille.statut != "soumise":
+        raise HTTPException(status_code=400, detail="Seule une feuille soumise peut être rejetée")
+    feuille.statut = "brouillon"
+    feuille.motif_rejet = payload.motif.strip()
+
+    from app.services.audit import log_action
+    log_action(db, current_user, "feuille.rejeter", cible_type="feuille_temps",
+               cible_id=feuille.id, cible_libelle=f"{payload.mois:02d}/{payload.annee}",
+               details=payload.motif.strip()[:200])
+    db.commit()
+
+    emp = db.query(Employe).filter(Employe.id == payload.employe_id).first()
+    if emp and emp.utilisateur:
+        from app.services.notifications import notifier
+        notifier(db=db, utilisateur_id=emp.utilisateur.id, type="feuille_rejetee",
+                 titre="Feuille de temps à corriger",
+                 message=f"Votre feuille de {payload.mois:02d}/{payload.annee} a été rejetée. "
+                         f"Motif : {payload.motif.strip()}",
+                 lien="/employe/pointage")
+    return {"message": "Feuille rejetée", "statut": "brouillon"}
+
+
 # ─── RH : récapitulatif + export ─────────────────────────────────────────────
 
 def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
+    """Une ligne par salarié : compteurs du mois, en JOURS (demi-journées incluses)."""
     debut, fin, _ = _mois_bornes(annee, mois)
     weekdays = _weekdays(annee, mois)
-    wd = {d.isoformat() for d in weekdays}
+
+    from app.services.feries import feries_du_mois
+    feries = feries_du_mois(db, annee, mois)
 
     pts = db.query(Pointage).filter(
         Pointage.date_jour >= debut, Pointage.date_jour <= fin
     ).all()
-    by_emp: dict[int, dict] = {}
+    par_employe: dict[int, list[Pointage]] = {}
     for p in pts:
-        if p.date_jour.isoformat() in wd:
-            by_emp.setdefault(p.employe_id, {})
-            by_emp[p.employe_id][p.type] = by_emp[p.employe_id].get(p.type, 0) + 1
+        par_employe.setdefault(p.employe_id, []).append(p)
 
-    feuilles = {f.employe_id: f.statut for f in db.query(FeuilleTemps).filter_by(annee=annee, mois=mois).all()}
-
-    # Fériés officiels du mois : non travaillés pour tout le monde, même si
-    # l'employé ne les a pas saisis (ils ne sont pas décomptés des congés).
-    from app.services.feries import feries_du_mois
-    feries_iso = set(feries_du_mois(db, annee, mois).keys()) & wd
+    feuilles = {
+        f.employe_id: f for f in db.query(FeuilleTemps).filter_by(annee=annee, mois=mois).all()
+    }
 
     rows = []
     for emp in db.query(Employe).all():
-        cnt = by_emp.get(emp.id, {})
-        cp = cnt.get("conge_paye", 0)
-        ss = cnt.get("conge_sans_solde", 0)
-        mal = cnt.get("maladie", 0)
-        # Fériés saisis + fériés officiels non saisis (sans double comptage)
-        saisis = {p.date_jour.isoformat() for p in pts if p.employe_id == emp.id}
-        fe = cnt.get("ferie", 0) + len(feries_iso - saisis)
-        production = len(weekdays) - cp - ss - mal - fe
+        t = _totaux(par_employe.get(emp.id, []), weekdays, feries)
 
         solde = db.query(SoldeEmploye).filter_by(
             employe_id=emp.id, type="conge_annuel", annee_reference=annee
@@ -277,11 +525,14 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
         solde_reste = (float(solde.quota_total) - float(solde.consomme)) if solde else None
 
         u = emp.utilisateur
+        feuille = feuilles.get(emp.id)
         notes = []
-        if mal:
-            notes.append(f"{mal} j maladie")
-        if fe:
-            notes.append(f"{fe} j férié")
+        if t["maladie"]:
+            notes.append(f"{t['maladie']:g} j maladie")
+        if t["ferie"]:
+            notes.append(f"{t['ferie']:g} j férié")
+        if t["interne"]:
+            notes.append(f"{t['interne']:g} j interne")
 
         rows.append({
             "employe_id": emp.id,
@@ -289,13 +540,17 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
             "nom": u.nom if u else "",
             "prenom": u.prenom if u else "",
             "sal_net": float(emp.salaire_base),
-            "production": production,
-            "conges_payes": cp,
-            "conges_sans_solde": ss,
-            "maladie": mal,
-            "ferie": fe,
+            "production": t["production"],
+            "conges_payes": t["conge_paye"],
+            "conges_sans_solde": t["conge_sans_solde"],
+            "maladie": t["maladie"],
+            "ferie": t["ferie"],
+            "interne": t["interne"],
+            "realise": t["realise"],
+            "completion": t["completion"],
             "solde_conges": solde_reste,
-            "statut": feuilles.get(emp.id, "non_rempli"),
+            "statut": feuille.statut if feuille else "non_rempli",
+            "motif_rejet": feuille.motif_rejet if feuille else None,
             "commentaire": " · ".join(notes),
         })
     rows.sort(key=lambda r: ((r["nom"] or "").lower(), (r["prenom"] or "").lower()))
