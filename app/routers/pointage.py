@@ -656,6 +656,10 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
             "exceptionnel": t["exceptionnel"],
             "realise": t["realise"],
             "completion": t["completion"],
+            # Base de comparaison : le RH doit voir sur quoi le taux est calculé
+            "attendu": t["attendu"],
+            "attendu_impose": t["attendu_impose"],
+            "entite": pays,
             "commentaire_salarie": feuille.commentaire if feuille else None,
             "solde_conges": solde_reste,
             "statut": feuille.statut if feuille else "non_rempli",

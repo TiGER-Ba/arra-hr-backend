@@ -134,6 +134,7 @@ class FicheSalarieCreate(BaseModel):
     date_embauche: date
     matricule: Optional[str] = None
     type_contrat: Optional[str] = "CDI"
+    entite: Optional[str] = "MA"                  # MA | FR — calendrier des fériés
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -565,6 +566,10 @@ def ajouter_fiche_salarie(
     if db.query(Employe).filter(Employe.matricule == matricule).first():
         raise HTTPException(status_code=400, detail="Ce matricule est déjà utilisé")
 
+    entite = (payload.entite or "MA").upper()
+    if entite not in ("MA", "FR"):
+        raise HTTPException(status_code=400, detail="Entité invalide (MA ou FR)")
+
     emp = Employe(
         utilisateur_id=user.id,
         matricule=matricule,
@@ -573,6 +578,7 @@ def ajouter_fiche_salarie(
         salaire_base=payload.salaire_base,
         date_embauche=payload.date_embauche,
         type_contrat=payload.type_contrat or "CDI",
+        entite=entite,
         cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)
