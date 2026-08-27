@@ -19,3 +19,5 @@ uploads/
 .DS_Store
 Thumbs.db
 cra_apercu.pdf
+apercu_*.pdf
+_apercu_tmp.py

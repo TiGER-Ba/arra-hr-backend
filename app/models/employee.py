@@ -16,6 +16,9 @@ class Employe(Base):
     salaire_base: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     date_embauche: Mapped[date] = mapped_column(Date, nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default="actif")  # actif | inactif | suspendu
+    # Entité employeur : « MA » (ARRA Maroc) ou « FR » (ARRA France).
+    # Détermine le calendrier de jours fériés appliqué à sa feuille de temps.
+    entite: Mapped[str] = mapped_column(String(2), nullable=False, default="MA")
     type_contrat: Mapped[str] = mapped_column(String(20), default="CDI")  # CDI | CDD | Stage | Freelance
     cin: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cnss: Mapped[str | None] = mapped_column(String(30), nullable=True)

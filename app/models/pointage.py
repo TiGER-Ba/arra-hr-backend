@@ -74,13 +74,16 @@ class JourFerie(Base):
     leur date grégorienne varie chaque année, elles sont donc saisies par le RH."""
     __tablename__ = "jours_feries"
     __table_args__ = (
-        UniqueConstraint("date_jour", name="uq_ferie_date"),
+        # Une même date peut être fériée au Maroc et pas en France (et l'inverse)
+        UniqueConstraint("date_jour", "pays", name="uq_ferie_date_pays"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     date_jour: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     libelle: Mapped[str] = mapped_column(String(100), nullable=False)
     annee: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # Entité concernée : « MA » ou « FR »
+    pays: Mapped[str] = mapped_column(String(2), nullable=False, default="MA", index=True)
     fixe: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
@@ -111,5 +114,10 @@ class FeuilleTemps(Base):
     motif_rejet: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Mot du salarié au service RH, joint à la soumission
     commentaire: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Nombre de jours attendus, imposé par l'administrateur pour ce mois.
+    # Null = calcul automatique (jours ouvrés − fériés). Sert aux temps partiels,
+    # aux arrivées/départs en cours de mois et aux fermetures d'entreprise.
+    jours_attendus: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

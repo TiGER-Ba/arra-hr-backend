@@ -50,6 +50,35 @@ def run_migrations() -> None:
     _migrer_templates()
     _migrer_pointage()
     _migrer_feuilles_temps()
+    _migrer_employes()
+    _migrer_feries()
+
+
+def _migrer_employes() -> None:
+    # Entité employeur : conditionne le calendrier de fériés appliqué.
+    cols = _colonnes("employes")
+    if cols is None:
+        return
+    _add_column(cols, "employes", "entite", "VARCHAR(2) DEFAULT 'MA' NOT NULL")
+
+
+def _migrer_feries() -> None:
+    """Ajoute le pays et remplace l'unicité sur la date par (date, pays).
+
+    Une même date peut être fériée au Maroc sans l'être en France.
+    """
+    cols = _colonnes("jours_feries")
+    if cols is None:
+        return
+    nouveau = "pays" not in cols
+    _add_column(cols, "jours_feries", "pays", "VARCHAR(2) DEFAULT 'MA' NOT NULL")
+    if nouveau:
+        _executer("UPDATE jours_feries SET pays = 'MA' WHERE pays IS NULL",
+                  "rattachement des fériés existants au Maroc")
+        # L'ancienne contrainte interdirait la même date pour les deux entités
+        for nom in ("uq_ferie_date", "jours_feries_date_jour_key"):
+            _executer(f"ALTER TABLE jours_feries DROP CONSTRAINT IF EXISTS {nom}",
+                      f"retrait de la contrainte {nom}")
 
 
 def _migrer_utilisateurs() -> None:
@@ -154,3 +183,4 @@ def _migrer_feuilles_temps() -> None:
     _add_column(cols, "feuilles_temps", "valide_le", "TIMESTAMP")
     _add_column(cols, "feuilles_temps", "motif_rejet", "TEXT")
     _add_column(cols, "feuilles_temps", "commentaire", "TEXT")
+    _add_column(cols, "feuilles_temps", "jours_attendus", "NUMERIC(4,2)")

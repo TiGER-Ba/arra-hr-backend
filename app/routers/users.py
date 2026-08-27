@@ -88,6 +88,9 @@ class UserCreate(BaseModel):
     role: str  # employe | rh | admin
     est_salarie: Optional[bool] = False          # rh/admin : créer aussi une fiche salarié
     service: Optional[str] = None                # RH
+    # Entité employeur : « MA » (ARRA Maroc) ou « FR » (ARRA France).
+    # Détermine le calendrier de jours fériés appliqué au pointage.
+    entite: Optional[str] = "MA"
     matricule: Optional[str] = None              # employé (auto si absent)
     poste: Optional[str] = None
     departement: Optional[str] = None
@@ -108,6 +111,7 @@ class UserUpdate(BaseModel):
     service: Optional[str] = None                 # RH
     poste: Optional[str] = None                   # employé
     statut: Optional[str] = None                  # employé : actif | inactif | suspendu
+    entite: Optional[str] = None                  # MA | FR
     departement: Optional[str] = None
     salaire_base: Optional[float] = None
     date_embauche: Optional[date] = None
@@ -210,6 +214,7 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "departement": e.departement, "salaire_base": float(e.salaire_base),
             "date_embauche": e.date_embauche.isoformat() if e.date_embauche else None,
             "statut": e.statut, "type_contrat": e.type_contrat,
+            "entite": getattr(e, "entite", None) or "MA",
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
     d["est_salarie"] = u.employe is not None
@@ -395,6 +400,9 @@ def creer_utilisateur(
     db.flush()
 
     if besoin_fiche:
+        entite = (payload.entite or "MA").upper()
+        if entite not in ("MA", "FR"):
+            raise HTTPException(status_code=400, detail="Entité invalide : « MA » ou « FR »")
         emp = Employe(
             utilisateur_id=user.id,
             matricule=matricule,
@@ -403,6 +411,7 @@ def creer_utilisateur(
             salaire_base=payload.salaire_base,
             date_embauche=payload.date_embauche,
             type_contrat=payload.type_contrat or "CDI",
+            entite=entite,
             cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
@@ -465,6 +474,11 @@ def modifier_utilisateur(
             if payload.statut not in VALID_STATUTS:
                 raise HTTPException(status_code=400, detail=f"Statut invalide. Valeurs : {sorted(VALID_STATUTS)}")
             e.statut = payload.statut
+        if payload.entite is not None:
+            entite = payload.entite.upper()
+            if entite not in ("MA", "FR"):
+                raise HTTPException(status_code=400, detail="Entité invalide : « MA » ou « FR »")
+            e.entite = entite
         for attr in ("poste", "departement", "salaire_base", "date_embauche",
                      "type_contrat", "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)

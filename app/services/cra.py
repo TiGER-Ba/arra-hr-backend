@@ -31,6 +31,20 @@ LIBELLES = {
 ORDRE = ["conge_paye", "conge_sans_solde", "maladie", "ferie"]
 
 
+def logo_data_uri() -> str | None:
+    """Logo ARRA en data URI, pour l'en-tête des documents générés.
+
+    Embarqué en base64 : WeasyPrint n'a alors besoin d'aucun accès réseau ni
+    d'un chemin absolu qui dépendrait du répertoire de lancement.
+    """
+    import base64
+
+    chemin = Path(__file__).parent.parent / "static" / "logo_arra.png"
+    if not chemin.exists():
+        return None
+    return "data:image/png;base64," + base64.b64encode(chemin.read_bytes()).decode("ascii")
+
+
 def _image_data_uri(valeur: str | None) -> str | None:
     """Signature/cachet en data URI (même mécanisme que pour les attestations)."""
     import base64
@@ -174,6 +188,7 @@ def construire_donnees_cra(db: Session, employe: Employe, annee: int, mois: int)
             if feuille and feuille.statut == "soumise" and feuille.updated_at else None
         ),
         "date_generation": datetime.now().strftime("%d/%m/%Y"),
+        "logo_url": logo_data_uri(),
         "signataire_nom": "El Mahdi HMOUCH",
         "signature_url": _image_data_uri(sig.valeur if sig else None),
         "cachet_url": _image_data_uri(cachet.valeur if cachet else None),
@@ -196,6 +211,90 @@ def generer_pdf_cra(db: Session, employe: Employe, annee: int, mois: int) -> byt
         raise RuntimeError(f"WeasyPrint/GTK non configuré. Détail : {e}")
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"Erreur de génération du CRA : {e}")
+
+
+def generer_pdf_cra_projet(db: Session, projet, annee: int, mois: int) -> bytes:
+    """Pointage consolidé d'un projet : une ligne par ressource affectée.
+
+    Donne au chef de projet et au RH la vue « qui a travaillé combien de jours
+    sur ce projet ce mois-ci », que le CRA individuel ne permet pas.
+    """
+    import calendar as _cal
+
+    from app.models.crm import Affectation
+    from app.services.feries import feries_du_mois, pays_employe
+
+    nb_jours = _cal.monthrange(annee, mois)[1]
+    debut, fin = date(annee, mois, 1), date(annee, mois, nb_jours)
+
+    jours = [
+        {"numero": d, "weekend": date(annee, mois, d).weekday() >= 5}
+        for d in range(1, nb_jours + 1)
+    ]
+
+    affectations = db.query(Affectation).filter(
+        Affectation.projet_id == projet.id
+    ).all()
+
+    lignes, totaux_jour = [], {}
+    for a in affectations:
+        emp = db.query(Employe).filter(Employe.id == a.employe_id).first()
+        if not emp:
+            continue
+        saisies = db.query(Pointage).filter(
+            Pointage.employe_id == emp.id,
+            Pointage.projet_id == projet.id,
+            Pointage.date_jour >= debut, Pointage.date_jour <= fin,
+        ).all()
+        if not saisies:
+            continue  # aucune activité ce mois-ci : on n'encombre pas le tableau
+
+        feries = feries_du_mois(db, annee, mois, pays_employe(emp))
+        par_jour, exceptionnels, total = {}, set(), 0.0
+        for p in saisies:
+            j = p.date_jour.day
+            val = float(p.valeur or 1)
+            par_jour[j] = par_jour.get(j, 0) + val
+            total += val
+            totaux_jour[j] = totaux_jour.get(j, 0) + val
+            if p.date_jour.weekday() >= 5 or p.date_jour.isoformat() in feries:
+                exceptionnels.add(j)
+
+        u = emp.utilisateur
+        lignes.append({
+            "nom": f"{(u.prenom + ' ') if u and u.prenom else ''}{u.nom if u else '—'}".strip(),
+            "matricule": emp.matricule,
+            "jours": {k: f"{v:g}" for k, v in par_jour.items()},
+            "exceptionnels": exceptionnels,
+            "total": f"{total:g}",
+        })
+
+    lignes.sort(key=lambda x: x["nom"].lower())
+    client = projet.societe.nom if projet.societe else "Interne"
+
+    donnees = {
+        "projet_reference": projet.reference,
+        "projet_nom": projet.nom,
+        "client": client,
+        "type_mission": (projet.type_mission or "").capitalize(),
+        "annee": annee,
+        "mois_libelle": MOIS_FR[mois],
+        "nb_jours": nb_jours,
+        "jours": jours,
+        "lignes": lignes,
+        "totaux_jour": {k: f"{v:g}" for k, v in totaux_jour.items()},
+        "total_projet": f"{sum(totaux_jour.values()):g}",
+        "date_generation": datetime.now().strftime("%d/%m/%Y"),
+        "logo_url": logo_data_uri(),
+    }
+
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
+    html = env.get_template("cra_projet.html").render(**donnees)
+    try:
+        from weasyprint import HTML
+        return HTML(string=html).write_pdf()
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"Erreur de génération du pointage projet : {e}")
 
 
 def nom_fichier_cra(employe: Employe, annee: int, mois: int) -> str:

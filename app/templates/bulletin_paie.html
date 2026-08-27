@@ -24,11 +24,16 @@
   .signature-images { margin-top: 12px; margin-bottom: 10px; font-size: 0; }
   .signature-images img { display: inline-block; vertical-align: bottom; max-height: 85px; max-width: 190px; margin-right: 45px; }
   .footer { position: fixed; bottom: 0.8cm; left: 1.8cm; right: 1.8cm; text-align: center; font-size: 8.5pt; color: #666; border-top: 1px solid #999; padding-top: 5px; }
+  .header .logo { max-height: 46px; max-width: 190px; margin-bottom: 4px; }
 </style>
 </head>
 <body>
   <div class="header">
+    {% if logo_url %}
+    <img src="{{ logo_url }}" alt="ARRA Engineering" class="logo">
+    {% else %}
     <div class="brand">ARRA ENGINEERING</div>
+    {% endif %}
     <div class="tagline">Engineering &amp; Technology Consulting</div>
   </div>
 

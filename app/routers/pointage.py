@@ -73,7 +73,22 @@ def _est_exceptionnel(jour: date, feries: dict) -> bool:
     return jour.weekday() >= 5 or jour.isoformat() in feries
 
 
-def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict) -> dict:
+def _jours_attendus(weekdays: list[date], feries: dict, override: float | None) -> float:
+    """Nombre de jours que le salarié doit déclarer.
+
+    Par défaut : jours ouvrés moins les jours fériés tombant en semaine.
+    L'administrateur peut imposer une autre valeur (temps partiel, arrivée ou
+    départ en cours de mois, fermeture d'entreprise).
+    """
+    if override is not None:
+        return float(override)
+    ouvres = {d.isoformat() for d in weekdays}
+    feries_ouvres = len([iso for iso in feries if iso in ouvres])
+    return float(len(weekdays) - feries_ouvres)
+
+
+def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict,
+            attendu_override: float | None = None) -> dict:
     """Totaux du mois, en JOURS (une saisie vaut 0,5 ou 1).
 
     Les fériés officiels non saisis sont ajoutés : ils ne sont ni travaillés ni
@@ -102,18 +117,24 @@ def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict) -> dict
         par_categorie["absence"] += feries_implicites
         par_type["ferie"] = par_type.get("ferie", 0.0) + feries_implicites
 
-    attendu = float(len(weekdays))
+    attendu = _jours_attendus(weekdays, feries, attendu_override)
     realise = par_categorie["production"] + par_categorie["absence"] + par_categorie["interne"]
     return {
-        "jours_ouvres": attendu,
+        "jours_ouvres": float(len(weekdays)),
+        # Ce que le salarié doit déclarer (fériés déduits, ou valeur imposée)
+        "attendu": attendu,
+        "attendu_impose": attendu_override is not None,
         "production": par_categorie["production"],
         "absence": par_categorie["absence"],
         "interne": par_categorie["interne"],
         "realise": realise,
         # Jours travaillés hors jours ouvrés — à majorer en paie
         "exceptionnel": exceptionnel,
-        # Jauge de complétion (peut dépasser 100 % si travail le week-end)
+        # Jauge de complétion. Elle n'est PAS bornée : au-dessus de 100 % en cas
+        # de travail le week-end, en dessous en cas de départ en cours de mois.
+        # Ces deux situations sont légitimes et ne bloquent jamais la soumission.
         "completion": round((realise / attendu) * 100) if attendu else 0,
+        "ecart": round(realise - attendu, 2),
         "par_type": par_type,
         # Compteurs conservés pour l'export paie et le CRA
         "conge_paye": par_type.get("conge_paye", 0.0),
@@ -129,10 +150,11 @@ def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dic
     """Grille mensuelle façon Boond : des LIGNES (projet ou absence) × des JOURS."""
     from app.models.crm import Affectation, Projet
     from app.models.pointage import LIBELLES_ABSENCE, LIBELLES_INTERNE
-    from app.services.feries import feries_du_mois
+    from app.services.feries import feries_du_mois, pays_employe
 
     _, _, nb = _mois_bornes(annee, mois)
-    feries = feries_du_mois(db, annee, mois)
+    # Le calendrier dépend de l'entité de rattachement (ARRA Maroc / France)
+    feries = feries_du_mois(db, annee, mois, pays_employe(emp))
 
     jours = []
     for d in range(1, nb + 1):
@@ -220,7 +242,10 @@ def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dic
         "jours": jours,
         "lignes": lignes,
         "projets_disponibles": projets_dispo,
-        "resume": _totaux(saisies, _weekdays(annee, mois), feries),
+        "resume": _totaux(
+            saisies, _weekdays(annee, mois), feries,
+            float(feuille.jours_attendus) if feuille and feuille.jours_attendus is not None else None,
+        ),
         # Détail des jours de repos travaillés, à justifier et à majorer
         "jours_exceptionnels": sorted(
             [
@@ -324,8 +349,8 @@ def enregistrer_feuille(
             Affectation.employe_id == emp.id, Affectation.actif == True,  # noqa: E712
         ).all()
     }
-    from app.services.feries import feries_du_mois
-    feries = feries_du_mois(db, payload.annee, payload.mois)
+    from app.services.feries import feries_du_mois, pays_employe
+    feries = feries_du_mois(db, payload.annee, payload.mois, pays_employe(emp))
 
     nouvelles: list[Pointage] = []
     total_par_jour: dict[int, float] = {}
@@ -333,6 +358,19 @@ def enregistrer_feuille(
     for ligne in payload.lignes:
         if ligne.categorie not in CATEGORIES:
             raise HTTPException(status_code=400, detail=f"Catégorie invalide : {ligne.categorie}")
+
+        # ⚠️ Les jours fériés relèvent de l'administrateur seul. Le salarié ne
+        # peut ni les créer, ni les supprimer, ni en modifier la durée : la
+        # ligne « Férié » de sa grille est calculée, pas saisie.
+        # S'il a travaillé un jour férié, il renseigne sa ligne de PROJET —
+        # le jour est alors marqué exceptionnel et remonte au RH.
+        if ligne.type == "ferie":
+            raise HTTPException(
+                status_code=403,
+                detail="Les jours fériés sont gérés par l'administrateur. "
+                       "Si vous avez travaillé ce jour-là, déclarez-le sur la ligne du projet.",
+            )
+
         if ligne.categorie == "production":
             if not ligne.projet_id:
                 raise HTTPException(status_code=400, detail="Un projet est requis pour une ligne de production")
@@ -555,8 +593,12 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
     debut, fin, _ = _mois_bornes(annee, mois)
     weekdays = _weekdays(annee, mois)
 
-    from app.services.feries import feries_du_mois
-    feries = feries_du_mois(db, annee, mois)
+    from app.services.feries import feries_du_mois, pays_employe
+
+    # Un calendrier par entité, calculé une seule fois pour tout le tableau
+    feries_par_pays = {
+        pays: feries_du_mois(db, annee, mois, pays) for pays in ("MA", "FR")
+    }
 
     pts = db.query(Pointage).filter(
         Pointage.date_jour >= debut, Pointage.date_jour <= fin
@@ -571,7 +613,13 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
 
     rows = []
     for emp in db.query(Employe).all():
-        t = _totaux(par_employe.get(emp.id, []), weekdays, feries)
+        pays = pays_employe(emp)
+        feries = feries_par_pays.get(pays, {})
+        f_emp = feuilles.get(emp.id)
+        t = _totaux(
+            par_employe.get(emp.id, []), weekdays, feries,
+            float(f_emp.jours_attendus) if f_emp and f_emp.jours_attendus is not None else None,
+        )
 
         solde = db.query(SoldeEmploye).filter_by(
             employe_id=emp.id, type="conge_annuel", annee_reference=annee
@@ -677,6 +725,36 @@ def ma_cra(
     return _reponse_cra(db, _get_employe(current_user, db), annee, mois, inline)
 
 
+@router.get("/cra-projet")
+def cra_projet(
+    projet_id: int, annee: int, mois: int,
+    inline: bool = False,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Pointage consolidé d'un projet : tous les salariés affectés, sur un mois."""
+    from app.models.crm import Projet
+    from app.services.cra import generer_pdf_cra_projet
+
+    _valider_periode(annee, mois)
+    projet = db.query(Projet).filter(Projet.id == projet_id).first()
+    if not projet:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+    try:
+        pdf = generer_pdf_cra_projet(db, projet, annee, mois)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    import re
+    ref = re.sub(r"[^A-Za-z0-9]+", "", projet.reference or "PRJ")
+    nom = f"Pointage_{ref}_{annee}_{mois:02d}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{nom}"'},
+    )
+
+
 @router.get("/cra-tous")
 def cra_tous(
     annee: int, mois: int,
@@ -710,29 +788,141 @@ def cra_tous(
 class FerieCreate(BaseModel):
     date_jour: str
     libelle: str
+    pays: str = "MA"
+
+
+class FerieUpdate(BaseModel):
+    date_jour: str | None = None
+    libelle: str | None = None
+
+
+class AttendusBody(BaseModel):
+    employe_id: int
+    annee: int
+    mois: int
+    jours_attendus: float | None = None   # null = retour au calcul automatique
 
 
 @router.get("/feries")
 def liste_feries(
     annee: int,
+    pays: str = "MA",
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
-    """Fériés de l'année. Les fériés fixes sont créés automatiquement au besoin."""
+    """Fériés de l'année pour une entité. Les fériés calculables sont créés au besoin.
+
+    France : tout est généré automatiquement, y compris les fêtes pascales.
+    Maroc : les 9 fêtes nationales sont générées ; les fêtes religieuses
+    (hégirien) doivent être saisies à la main, leur date variant chaque année.
+    """
     from app.models.pointage import JourFerie
-    from app.services.feries import FERIES_RELIGIEUX_LABELS, assurer_feries_fixes
+    from app.services.feries import FERIES_RELIGIEUX_LABELS, LIBELLES_PAYS, PAYS, assurer_feries
 
     _valider_periode(annee, 1)
-    assurer_feries_fixes(db, annee)
-    lignes = db.query(JourFerie).filter(JourFerie.annee == annee).order_by(JourFerie.date_jour).all()
+    if pays not in PAYS:
+        raise HTTPException(status_code=400, detail=f"Entité invalide. Valeurs : {list(PAYS)}")
+
+    assurer_feries(db, annee, pays)
+    lignes = db.query(JourFerie).filter(
+        JourFerie.annee == annee, JourFerie.pays == pays
+    ).order_by(JourFerie.date_jour).all()
+
     return {
         "annee": annee,
+        "pays": pays,
+        "pays_libelle": LIBELLES_PAYS.get(pays, pays),
         "feries": [
-            {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle, "fixe": f.fixe}
+            {
+                "id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle,
+                "fixe": f.fixe, "pays": f.pays,
+            }
             for f in lignes
         ],
-        # Fêtes religieuses : dates variables (calendrier hégirien) → saisie manuelle
-        "suggestions_religieuses": FERIES_RELIGIEUX_LABELS,
+        # Seul le Maroc a des fêtes non calculables (calendrier hégirien)
+        "suggestions_religieuses": FERIES_RELIGIEUX_LABELS if pays == "MA" else [],
+    }
+
+
+@router.put("/feries/{ferie_id}")
+def modifier_ferie(
+    ferie_id: int,
+    payload: FerieUpdate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Corrige la date ou le libellé d'un férié (utile pour les fêtes religieuses,
+    dont la date officielle n'est connue qu'à l'approche)."""
+    from app.models.pointage import JourFerie
+
+    f = db.query(JourFerie).filter(JourFerie.id == ferie_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Jour férié introuvable")
+
+    if payload.date_jour:
+        try:
+            nouvelle = date.fromisoformat(payload.date_jour)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date invalide")
+        doublon = db.query(JourFerie).filter(
+            JourFerie.date_jour == nouvelle, JourFerie.pays == f.pays, JourFerie.id != ferie_id
+        ).first()
+        if doublon:
+            raise HTTPException(status_code=400, detail="Cette date est déjà fériée pour cette entité")
+        f.date_jour = nouvelle
+        f.annee = nouvelle.year
+    if payload.libelle is not None:
+        if not payload.libelle.strip():
+            raise HTTPException(status_code=400, detail="Le libellé est requis")
+        f.libelle = payload.libelle.strip()
+
+    from app.services.audit import log_action
+    log_action(db, current_user, "ferie.update", cible_type="jour_ferie", cible_id=f.id,
+               cible_libelle=f"{f.date_jour.isoformat()} — {f.libelle} ({f.pays})")
+    db.commit()
+    return {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle,
+            "fixe": f.fixe, "pays": f.pays}
+
+
+@router.post("/jours-attendus")
+def definir_jours_attendus(
+    payload: AttendusBody,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Impose (ou libère) le nombre de jours attendus d'un salarié pour un mois.
+
+    Sert aux temps partiels, aux arrivées et départs en cours de mois — cas d'une
+    démission — et aux fermetures d'entreprise. `null` rétablit le calcul
+    automatique (jours ouvrés moins les fériés).
+    """
+    _valider_periode(payload.annee, payload.mois)
+    emp = db.query(Employe).filter(Employe.id == payload.employe_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employé introuvable")
+    if payload.jours_attendus is not None and not (0 <= payload.jours_attendus <= 31):
+        raise HTTPException(status_code=400, detail="Valeur attendue entre 0 et 31")
+
+    feuille = db.query(FeuilleTemps).filter_by(
+        employe_id=payload.employe_id, annee=payload.annee, mois=payload.mois
+    ).first()
+    if not feuille:
+        feuille = FeuilleTemps(
+            employe_id=payload.employe_id, annee=payload.annee, mois=payload.mois
+        )
+        db.add(feuille)
+    feuille.jours_attendus = payload.jours_attendus
+
+    from app.services.audit import log_action
+    log_action(db, current_user, "feuille.jours_attendus", cible_type="feuille_temps",
+               cible_id=payload.employe_id,
+               cible_libelle=f"{payload.mois:02d}/{payload.annee}",
+               details=("automatique" if payload.jours_attendus is None
+                        else f"{payload.jours_attendus:g} j imposés"))
+    db.commit()
+    return {
+        "message": "Jours attendus mis à jour",
+        "jours_attendus": float(feuille.jours_attendus) if feuille.jours_attendus is not None else None,
     }
 
 
@@ -743,19 +933,32 @@ def creer_ferie(
     db: Session = Depends(get_db),
 ):
     from app.models.pointage import JourFerie
+    from app.services.feries import PAYS
+
+    if payload.pays not in PAYS:
+        raise HTTPException(status_code=400, detail=f"Entité invalide. Valeurs : {list(PAYS)}")
     try:
         jd = date.fromisoformat(payload.date_jour)
     except ValueError:
         raise HTTPException(status_code=400, detail="Date invalide")
     if not payload.libelle.strip():
         raise HTTPException(status_code=400, detail="Le libellé est requis")
-    if db.query(JourFerie).filter(JourFerie.date_jour == jd).first():
-        raise HTTPException(status_code=400, detail="Ce jour est déjà déclaré férié")
-    f = JourFerie(date_jour=jd, libelle=payload.libelle.strip(), annee=jd.year, fixe=False)
+    # L'unicité porte sur (date, entité) : le 1ᵉʳ mai peut exister pour les deux
+    if db.query(JourFerie).filter(
+        JourFerie.date_jour == jd, JourFerie.pays == payload.pays
+    ).first():
+        raise HTTPException(status_code=400, detail="Ce jour est déjà férié pour cette entité")
+
+    f = JourFerie(date_jour=jd, libelle=payload.libelle.strip(), annee=jd.year,
+                  pays=payload.pays, fixe=False)
     db.add(f)
+    from app.services.audit import log_action
+    log_action(db, current_user, "ferie.create", cible_type="jour_ferie",
+               cible_libelle=f"{jd.isoformat()} — {payload.libelle.strip()} ({payload.pays})")
     db.commit()
     db.refresh(f)
-    return {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle, "fixe": f.fixe}
+    return {"id": f.id, "date": f.date_jour.isoformat(), "libelle": f.libelle,
+            "fixe": f.fixe, "pays": f.pays}
 
 
 @router.delete("/feries/{ferie_id}", status_code=204)

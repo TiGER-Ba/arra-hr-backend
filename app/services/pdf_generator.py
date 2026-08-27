@@ -14,6 +14,16 @@ from app.models.parametrage import Parametrage
 from app.models.template import Template as TemplateModel
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+def _logo_data_uri() -> str | None:
+    """Logo ARRA embarqué en base64 : aucun accès réseau ni chemin absolu requis
+    par WeasyPrint, et le rendu est identique en aperçu HTML et en PDF."""
+    chemin = STATIC_DIR / "logo_arra.png"
+    if not chemin.exists():
+        return None
+    return "data:image/png;base64," + base64.b64encode(chemin.read_bytes()).decode("ascii")
 
 # Fields that must stay numeric for template rendering
 _NUMERIC_FIELDS = {"salaire_base"}
@@ -76,6 +86,8 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         "signataire_fonction": "Directeur ARRA ENGINEERING Maroc",
         "signature_url": _to_abs(sig_row.valeur if sig_row else None),
         "cachet_url": _to_abs(cachet_row.valeur if cachet_row else None),
+        # Logo ARRA en en-tête des documents générés
+        "logo_url": _logo_data_uri(),
     }
 
     # donnees_collectees overrides base — but restore numeric types

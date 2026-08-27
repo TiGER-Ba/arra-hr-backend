@@ -19,7 +19,7 @@ DONNEES = {
     "adresse": "Casablanca", "telephone": "+212600000000",
     "date_generation": "29/07/2026", "lieu_signature": "Casablanca",
     "signataire_nom": "El Mahdi HMOUCH", "signataire_fonction": "Directeur ARRA ENGINEERING Maroc",
-    "signature_url": PIXEL, "cachet_url": PIXEL,
+    "signature_url": PIXEL, "cachet_url": PIXEL, "logo_url": PIXEL,
     "mois": "07", "annee": "2026", "date_debut": "2026-08-01", "date_fin": "2026-08-15",
     "type_conge": "annuel", "motif": "Congé annuel", "nombre_jours": 10,
     "destination": "Rabat", "date_depart": "2026-08-01", "date_retour": "2026-08-03",
@@ -29,6 +29,10 @@ DONNEES = {
 
 ok = True
 env = Environment()
+
+# Documents opérationnels internes : ils n'engagent pas la société et ne
+# portent donc ni signature ni cachet (contrairement aux attestations).
+SANS_SIGNATURE = {"cra_projet.html"}
 
 print("— Rendu des templates —")
 for fichier in sorted(DOSSIER.glob("*.html")):
@@ -54,10 +58,16 @@ for fichier in sorted(DOSSIER.glob("*.html")):
         print(f"  ECHEC {fichier.name} : page-break-inside manquant")
         continue
 
-    # 4) signature ET cachet doivent apparaître dans le HTML produit
-    if html.count(PIXEL) < 2:
+    # 4) signature ET cachet doivent apparaître — sauf documents internes
+    if fichier.name not in SANS_SIGNATURE and html.count(PIXEL) < 2:
         ok = False
         print(f"  ECHEC {fichier.name} : signature et/ou cachet absents du rendu")
+        continue
+
+    # 5) le logo ARRA doit être présent dans les documents à en-tête
+    if fichier.name not in SANS_SIGNATURE and "logo_url" not in contenu:
+        ok = False
+        print(f"  ECHEC {fichier.name} : logo absent de l'en-tête")
         continue
 
     print(f"  OK    {fichier.name}")

@@ -71,7 +71,11 @@
   </div>
 
   <div class="entete">
+    {% if logo_url %}
+    <img src="{{ logo_url }}" alt="ARRA Engineering" style="max-height:38px;max-width:160px">
+    {% else %}
     <div class="societe">ARRA ENGINEERING</div>
+    {% endif %}
     <div class="titre">Feuille des temps de {{ prenom_nom }} — {{ mois_libelle }} {{ annee }}</div>
   </div>
 

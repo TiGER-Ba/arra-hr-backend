@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4 landscape; margin: 1.1cm 1.2cm 1.4cm 1.2cm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 8pt; color: #1a1a1a; }
+
+  .entete { margin-bottom: 12px; }
+  .entete img { max-height: 34px; max-width: 150px; }
+  .titre { font-size: 12pt; font-weight: bold; margin-top: 8px; }
+  .sous-titre { font-size: 8.5pt; color: #555; margin-top: 2px; }
+
+  .meta { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 7.6pt; }
+  .meta td { padding: 2px 0; vertical-align: top; }
+  .meta .libelle { color: #666; width: 110px; }
+  .meta .valeur { font-weight: bold; }
+
+  table.grille { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.grille th, table.grille td {
+    border: 1px solid #bfbfbf; text-align: center; padding: 3px 0; font-size: 7pt;
+  }
+  table.grille th.res, table.grille td.res {
+    text-align: left; padding-left: 5px; width: 165px; font-size: 7.4pt;
+  }
+  /* Le tableau peut légitimement s'étaler sur plusieurs pages (30 ressources),
+     mais une LIGNE ne doit jamais être coupée en deux. WeasyPrint répète
+     automatiquement l'en-tête sur chaque page. */
+  table.grille thead { display: table-header-group; }
+  table.grille tr { page-break-inside: avoid; }
+  table.grille thead th { background: #eceaf2; font-weight: bold; }
+  table.grille th.we, table.grille td.we { background: #f4f4f7; color: #9a9a9a; }
+  table.grille td.marque { font-weight: bold; background: #f0fdf6; }
+  table.grille td.exception { font-weight: bold; background: #fdf4e3; color: #9a5f08; }
+  table.grille td.total { background: #f7f7fb; font-weight: bold; width: 44px; }
+  table.grille tr.somme td { background: #eceaf2; font-weight: bold; }
+
+  .legende { margin-top: 6px; font-size: 6.8pt; color: #666; }
+  .legende span { margin-right: 14px; }
+  .puce { display: inline-block; width: 8px; height: 8px; border: 1px solid #bfbfbf; vertical-align: middle; margin-right: 3px; }
+
+  .pied {
+    position: fixed; bottom: 0.3cm; left: 0; right: 0;
+    text-align: center; font-size: 6.4pt; color: #777;
+    border-top: 1px solid #ccc; padding-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="entete">
+    {% if logo_url %}<img src="{{ logo_url }}" alt="ARRA Engineering">{% endif %}
+    <div class="titre">Pointage projet — {{ projet_reference }} · {{ projet_nom }}</div>
+    <div class="sous-titre">{{ mois_libelle }} {{ annee }}</div>
+  </div>
+
+  <table class="meta">
+    <tr>
+      <td class="libelle">Client :</td>
+      <td class="valeur">{{ client }}</td>
+      <td class="libelle">Type :</td>
+      <td class="valeur">{{ type_mission }}</td>
+    </tr>
+    <tr>
+      <td class="libelle">Période :</td>
+      <td class="valeur">du 1 au {{ nb_jours }} {{ mois_libelle }} {{ annee }}</td>
+      <td class="libelle">Ressources :</td>
+      <td class="valeur">{{ lignes|length }} affectée(s)</td>
+    </tr>
+  </table>
+
+  <table class="grille">
+    <thead>
+      <tr>
+        <th class="res">Ressource</th>
+        {% for j in jours %}
+        <th class="{% if j.weekend %}we{% endif %}">{{ j.numero }}</th>
+        {% endfor %}
+        <th class="total">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ligne in lignes %}
+      <tr>
+        <td class="res">{{ ligne.nom }}<br><span style="color:#777">{{ ligne.matricule }}</span></td>
+        {% for j in jours %}
+        {% set v = ligne.jours.get(j.numero) %}
+        <td class="{% if j.weekend %}we{% elif v and j.numero in ligne.exceptionnels %}exception{% elif v %}marque{% endif %}">
+          {{ v if v else '' }}
+        </td>
+        {% endfor %}
+        <td class="total">{{ ligne.total }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="somme">
+        <td class="res">TOTAL PROJET</td>
+        {% for j in jours %}
+        <td class="{% if j.weekend %}we{% endif %}">{{ totaux_jour.get(j.numero, '') }}</td>
+        {% endfor %}
+        <td class="total">{{ total_projet }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="legende">
+    <span><span class="puce" style="background:#f0fdf6"></span>Jour travaillé</span>
+    <span><span class="puce" style="background:#fdf4e3"></span>Hors jours ouvrés (majorable)</span>
+    <span><span class="puce" style="background:#f4f4f7"></span>Week-end</span>
+  </div>
+
+  <div class="pied">
+    ARRA ENGINEERING SARL (AU) — Capital 100 000 DH — RC n° 119431 —
+    Technopark, Bd Dammam, Casablanca · Document généré le {{ date_generation }}
+  </div>
+
+</body>
+</html>
