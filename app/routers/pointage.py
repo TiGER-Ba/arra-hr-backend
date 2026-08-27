@@ -64,24 +64,39 @@ def _cle_ligne(p: Pointage) -> tuple:
     return (p.categorie or "absence", p.projet_id, p.type)
 
 
+def _est_exceptionnel(jour: date, feries: dict) -> bool:
+    """Jour de repos : samedi, dimanche ou jour férié.
+
+    Y travailler ouvre droit à majoration (Code du travail marocain) : ces jours
+    doivent donc être identifiables séparément jusque dans l'export de paie.
+    """
+    return jour.weekday() >= 5 or jour.isoformat() in feries
+
+
 def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict) -> dict:
     """Totaux du mois, en JOURS (une saisie vaut 0,5 ou 1).
 
     Les fériés officiels non saisis sont ajoutés : ils ne sont ni travaillés ni
-    décomptés des congés.
+    décomptés des congés. Le temps déclaré un jour de repos est compté dans la
+    production ET isolé dans `exceptionnel`.
     """
     ouvres = {d.isoformat() for d in weekdays}
     saisis = {p.date_jour.isoformat() for p in saisies}
 
     par_categorie = {"production": 0.0, "absence": 0.0, "interne": 0.0}
     par_type: dict[str, float] = {}
-    for p in saisies:
-        if p.date_jour.isoformat() not in ouvres:
-            continue
-        val = float(p.valeur or 1)
-        par_categorie[p.categorie or "absence"] = par_categorie.get(p.categorie or "absence", 0.0) + val
-        par_type[p.type] = par_type.get(p.type, 0.0) + val
+    exceptionnel = 0.0
 
+    for p in saisies:
+        val = float(p.valeur or 1)
+        categorie = p.categorie or "absence"
+        par_categorie[categorie] = par_categorie.get(categorie, 0.0) + val
+        par_type[p.type] = par_type.get(p.type, 0.0) + val
+        # Travail (production ou interne) un jour de repos → majorable
+        if categorie != "absence" and _est_exceptionnel(p.date_jour, feries):
+            exceptionnel += val
+
+    # Fériés officiels qu'aucune saisie ne recouvre : chômés
     feries_implicites = len([iso for iso in feries if iso in ouvres and iso not in saisis])
     if feries_implicites:
         par_categorie["absence"] += feries_implicites
@@ -95,7 +110,9 @@ def _totaux(saisies: list[Pointage], weekdays: list[date], feries: dict) -> dict
         "absence": par_categorie["absence"],
         "interne": par_categorie["interne"],
         "realise": realise,
-        # Jauge de complétion, comme dans Boond
+        # Jours travaillés hors jours ouvrés — à majorer en paie
+        "exceptionnel": exceptionnel,
+        # Jauge de complétion (peut dépasser 100 % si travail le week-end)
         "completion": round((realise / attendu) * 100) if attendu else 0,
         "par_type": par_type,
         # Compteurs conservés pour l'export paie et le CRA
@@ -147,11 +164,13 @@ def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dic
                 libelle = LIBELLES_ABSENCE.get(type_, type_.capitalize())
             groupes[cle] = {
                 "categorie": categorie, "projet_id": projet_id, "type": type_,
-                "libelle": libelle, "jours": {}, "total": 0.0,
+                "libelle": libelle, "jours": {}, "commentaires": {}, "total": 0.0,
             }
         val = float(p.valeur or 1)
         groupes[cle]["jours"][p.date_jour.day] = val
         groupes[cle]["total"] += val
+        if p.commentaire:
+            groupes[cle]["commentaires"][p.date_jour.day] = p.commentaire
 
     # Ligne « Férié » implicite : les fériés officiels non saisis
     ouvres = {d.isoformat() for d in _weekdays(annee, mois)}
@@ -168,8 +187,8 @@ def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dic
         else:
             groupes[cle] = {
                 "categorie": "absence", "projet_id": None, "type": "ferie",
-                "libelle": "Férié", "jours": implicites, "total": float(len(implicites)),
-                "automatique": True,
+                "libelle": "Férié", "jours": implicites, "commentaires": {},
+                "total": float(len(implicites)), "automatique": True,
             }
 
     ordre = {"production": 0, "interne": 1, "absence": 2}
@@ -197,10 +216,26 @@ def _construire_feuille(db: Session, emp: Employe, annee: int, mois: int) -> dic
         },
         "statut": feuille.statut if feuille else "brouillon",
         "motif_rejet": feuille.motif_rejet if feuille else None,
+        "commentaire": feuille.commentaire if feuille else None,
         "jours": jours,
         "lignes": lignes,
         "projets_disponibles": projets_dispo,
         "resume": _totaux(saisies, _weekdays(annee, mois), feries),
+        # Détail des jours de repos travaillés, à justifier et à majorer
+        "jours_exceptionnels": sorted(
+            [
+                {
+                    "date": p.date_jour.isoformat(),
+                    "jour": p.date_jour.day,
+                    "valeur": float(p.valeur or 1),
+                    "motif": "Jour férié" if p.date_jour.isoformat() in feries else "Week-end",
+                    "commentaire": p.commentaire,
+                }
+                for p in saisies
+                if (p.categorie or "absence") != "absence" and _est_exceptionnel(p.date_jour, feries)
+            ],
+            key=lambda x: x["jour"],
+        ),
     }
 
 
@@ -240,12 +275,15 @@ class LigneSaisie(BaseModel):
     type: str                      # « normale », ou type d'absence/interne
     projet_id: int | None = None   # requis si categorie == production
     jours: dict[str, float] = {}   # { "12": 1, "13": 0.5 }
+    # Justification par jour — attendue sur les jours de repos travaillés
+    commentaires: dict[str, str] = {}
 
 
 class FeuilleSave(BaseModel):
     annee: int
     mois: int
     lignes: list[LigneSaisie] = []
+    commentaire: str | None = None   # mot du salarié au service RH
 
 
 class PeriodeBody(BaseModel):
@@ -286,6 +324,8 @@ def enregistrer_feuille(
             Affectation.employe_id == emp.id, Affectation.actif == True,  # noqa: E712
         ).all()
     }
+    from app.services.feries import feries_du_mois
+    feries = feries_du_mois(db, payload.annee, payload.mois)
 
     nouvelles: list[Pointage] = []
     total_par_jour: dict[int, float] = {}
@@ -316,15 +356,27 @@ def enregistrer_feuille(
                 continue
             if val not in (0.5, 1.0):
                 raise HTTPException(status_code=400, detail="Seules les valeurs 0,5 et 1 sont acceptées")
+
             jd = date(payload.annee, payload.mois, jour)
-            if jd.weekday() >= 5:
-                continue  # week-end : non pointable
+            exceptionnel = _est_exceptionnel(jd, feries)
+
+            # Une absence un jour de repos n'a pas de sens : on ne pose pas de
+            # congé un dimanche, il n'était pas travaillé.
+            if exceptionnel and ligne.categorie == "absence":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Le {jour}/{payload.mois:02d} est un jour de repos : "
+                           f"une absence ne peut pas y être déclarée.",
+                )
+
             total_par_jour[jour] = total_par_jour.get(jour, 0.0) + val
             nouvelles.append(Pointage(
                 employe_id=emp.id, date_jour=jd,
                 categorie=ligne.categorie, type=ligne.type,
                 projet_id=ligne.projet_id if ligne.categorie == "production" else None,
                 valeur=val,
+                exceptionnel=exceptionnel,
+                commentaire=(ligne.commentaires.get(jour_str) or "").strip()[:255] or None,
             ))
 
     # Cohérence : on ne peut pas déclarer plus d'une journée sur une même date
@@ -348,6 +400,8 @@ def enregistrer_feuille(
         )
         db.add(feuille)
     feuille.motif_rejet = None
+    if payload.commentaire is not None:
+        feuille.commentaire = payload.commentaire.strip() or None
     db.commit()
 
     return {"message": "Feuille enregistrée", "statut": feuille.statut}
@@ -527,12 +581,17 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
         u = emp.utilisateur
         feuille = feuilles.get(emp.id)
         notes = []
+        if t["exceptionnel"]:
+            # En tête : c'est l'information qui a un impact direct sur la paie
+            notes.append(f"⚠ {t['exceptionnel']:g} j hors jours ouvrés (à majorer)")
         if t["maladie"]:
             notes.append(f"{t['maladie']:g} j maladie")
         if t["ferie"]:
             notes.append(f"{t['ferie']:g} j férié")
         if t["interne"]:
             notes.append(f"{t['interne']:g} j interne")
+        if feuille and feuille.commentaire:
+            notes.append(f"Note : {feuille.commentaire[:80]}")
 
         rows.append({
             "employe_id": emp.id,
@@ -546,8 +605,10 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
             "maladie": t["maladie"],
             "ferie": t["ferie"],
             "interne": t["interne"],
+            "exceptionnel": t["exceptionnel"],
             "realise": t["realise"],
             "completion": t["completion"],
+            "commentaire_salarie": feuille.commentaire if feuille else None,
             "solde_conges": solde_reste,
             "statut": feuille.statut if feuille else "non_rempli",
             "motif_rejet": feuille.motif_rejet if feuille else None,
@@ -728,7 +789,9 @@ def export_paie(
 
     headers = [
         "Type", "Ressource - Nom", "Ressource - Prénom", "Sal Net (dont la prime)",
-        "Prime", "Production", "Congés Payés", "Congés Sans solde", "Prime AID",
+        "Prime", "Production", "Congés Payés", "Congés Sans solde",
+        # Jours travaillés hors jours ouvrés : base du calcul de majoration
+        "Jours majorables", "Prime AID",
         "Commentaires", "Solde congés",
     ]
     header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -745,17 +808,23 @@ def export_paie(
 
     for i, r in enumerate(rows, 2):
         sal = f"{r['sal_net']:,.2f} MAD".replace(",", " ")
+        majorables = r.get("exceptionnel") or 0
         values = [
             r["type"], r["nom"], r["prenom"], sal, "",
-            r["production"], r["conges_payes"], r["conges_sans_solde"], "",
+            r["production"], r["conges_payes"], r["conges_sans_solde"],
+            majorables or "", "",
             r["commentaire"], r["solde_conges"] if r["solde_conges"] is not None else "",
         ]
         for c, v in enumerate(values, 1):
             cell = ws.cell(row=i, column=c, value=v)
             cell.border = thin
             cell.alignment = Alignment(horizontal="center", vertical="center")
+            # Mise en évidence : ces jours demandent un traitement en paie
+            if c == 9 and majorables:
+                cell.font = Font(bold=True, color="9A5F08")
+                cell.fill = PatternFill(start_color="FDF4E3", end_color="FDF4E3", fill_type="solid")
 
-    widths = [12, 16, 16, 20, 12, 12, 12, 14, 10, 30, 12]
+    widths = [12, 16, 16, 20, 12, 12, 12, 14, 14, 10, 34, 12]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 

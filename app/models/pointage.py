@@ -62,6 +62,10 @@ class Pointage(Base):
     # 1 = journée entière, 0.5 = demi-journée
     valeur: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, default=1)
 
+    # Travail un samedi, un dimanche ou un jour férié : ouvre droit à majoration
+    # au Maroc. Stocké pour que la paie ne le confonde pas avec un jour ouvré.
+    exceptionnel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     commentaire: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
@@ -105,5 +109,7 @@ class FeuilleTemps(Base):
     )
     valide_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     motif_rejet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mot du salarié au service RH, joint à la soumission
+    commentaire: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

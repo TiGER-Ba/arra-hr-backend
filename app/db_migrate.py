@@ -85,6 +85,8 @@ def _migrer_pointage() -> None:
     _add_column(cols, "pointages", "categorie", "VARCHAR(20)")
     _add_column(cols, "pointages", "projet_id", "INTEGER")
     _add_column(cols, "pointages", "valeur", "NUMERIC(3,2)")
+    # Travail hors jours ouvrés (samedi, dimanche, férié) → majoration en paie
+    _add_column(cols, "pointages", "exceptionnel", "BOOLEAN DEFAULT FALSE NOT NULL")
 
     # Reprise des lignes historiques (toutes étaient des absences d'une journée)
     if premiere_fois:
@@ -124,20 +126,16 @@ def _retirer_contrainte_unique_jour() -> None:
             return  # contrainte déjà absente
 
         with engine.begin() as conn:
-            colonnes = [r[1] for r in conn.execute(text("PRAGMA table_info(pointages)")).fetchall()]
-            liste = ", ".join(colonnes)
-            conn.execute(text("""
-                CREATE TABLE pointages_migration (
-                    id INTEGER PRIMARY KEY,
-                    employe_id INTEGER NOT NULL,
-                    date_jour DATE NOT NULL,
-                    categorie VARCHAR(20),
-                    type VARCHAR(30) NOT NULL,
-                    projet_id INTEGER,
-                    valeur NUMERIC(3,2),
-                    commentaire VARCHAR(255)
-                )
-            """))
+            infos = conn.execute(text("PRAGMA table_info(pointages)")).fetchall()
+            # ⚠️ Les colonnes sont reprises DYNAMIQUEMENT : une liste écrite en
+            # dur se désynchroniserait au prochain ajout de colonne.
+            definitions, noms = [], []
+            for info in infos:
+                nom, type_sql, pk = info[1], info[2] or "TEXT", info[5]
+                noms.append(nom)
+                definitions.append(f"{nom} {type_sql}" + (" PRIMARY KEY" if pk else ""))
+            liste = ", ".join(noms)
+            conn.execute(text(f"CREATE TABLE pointages_migration ({', '.join(definitions)})"))
             conn.execute(text(
                 f"INSERT INTO pointages_migration ({liste}) SELECT {liste} FROM pointages"
             ))
@@ -155,3 +153,4 @@ def _migrer_feuilles_temps() -> None:
     _add_column(cols, "feuilles_temps", "valide_par_id", "INTEGER")
     _add_column(cols, "feuilles_temps", "valide_le", "TIMESTAMP")
     _add_column(cols, "feuilles_temps", "motif_rejet", "TEXT")
+    _add_column(cols, "feuilles_temps", "commentaire", "TEXT")

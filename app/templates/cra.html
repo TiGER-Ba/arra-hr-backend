@@ -162,6 +162,29 @@
     </div>
   </div>
 
+  {% if exceptionnels %}
+  <div style="margin-top:12px; page-break-inside: avoid;">
+    <table class="totaux">
+      <tr><th colspan="4">Jours travaillés hors jours ouvrés — ouvrant droit à majoration ({{ total_exceptionnel }} j)</th></tr>
+      {% for e in exceptionnels %}
+      <tr>
+        <td style="width:80px">{{ e.date }}</td>
+        <td style="width:80px">{{ e.motif }}</td>
+        <td class="n" style="width:50px">{{ e.valeur }} j</td>
+        <td style="color:#555">{{ e.commentaire or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if commentaire_salarie %}
+  <div style="margin-top:10px; font-size:7.4pt; page-break-inside: avoid;">
+    <span style="font-weight:bold">Commentaire du salarié :</span>
+    <span style="color:#555">{{ commentaire_salarie }}</span>
+  </div>
+  {% endif %}
+
   <div class="validations">
     <div class="validation">
       <div class="cadre">

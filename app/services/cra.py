@@ -122,6 +122,24 @@ def construire_donnees_cra(db: Session, employe: Employe, annee: int, mois: int)
     total_absences = sum(g["total"] for g in lignes if g["categorie"] == "absence")
     total_interne = sum(g["total"] for g in lignes if g["categorie"] == "interne")
 
+    # Jours de repos travaillés : à faire apparaître, ils ouvrent droit à majoration
+    feries_iso = set(feries_du_mois(db, annee, mois).keys())
+    exceptionnels = [
+        {
+            "jour": p.date_jour.day,
+            "date": p.date_jour.strftime("%d/%m/%Y"),
+            "valeur": f"{float(p.valeur or 1):g}",
+            "motif": "Jour férié" if p.date_jour.isoformat() in feries_iso else "Week-end",
+            "commentaire": p.commentaire,
+        }
+        for p in sorted(saisies, key=lambda x: x.date_jour)
+        if (p.categorie or "absence") != "absence"
+        and (p.date_jour.weekday() >= 5 or p.date_jour.isoformat() in feries_iso)
+    ]
+    total_exceptionnel = sum(float(p.valeur or 1) for p in saisies
+                             if (p.categorie or "absence") != "absence"
+                             and (p.date_jour.weekday() >= 5 or p.date_jour.isoformat() in feries_iso))
+
     feuille = db.query(FeuilleTemps).filter_by(
         employe_id=employe.id, annee=annee, mois=mois
     ).first()
@@ -147,6 +165,9 @@ def construire_donnees_cra(db: Session, employe: Employe, annee: int, mois: int)
         "production": f"{total_production:g}",
         "total_absence": f"{total_absences:g}",
         "total_interne": f"{total_interne:g}",
+        "exceptionnels": exceptionnels,
+        "total_exceptionnel": f"{total_exceptionnel:g}",
+        "commentaire_salarie": feuille.commentaire if feuille else None,
         "statut": feuille.statut if feuille else "brouillon",
         "date_soumission": (
             feuille.updated_at.strftime("%d/%m/%Y")
