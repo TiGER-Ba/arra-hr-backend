@@ -66,6 +66,11 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         data = base64.b64encode(abs_path.read_bytes()).decode("ascii")
         return f"data:image/{mime};base64,{data}"
 
+    from app.services.devises import devise_employe, symbole
+
+    entite = (getattr(employe, "entite", None) or "MA").upper()
+    devise = symbole(devise_employe(employe))
+
     base = {
         "nom_employe": utilisateur.nom,
         "email_employe": utilisateur.email,
@@ -76,19 +81,37 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         "date_embauche": employe.date_embauche.strftime("%d/%m/%Y"),
         "statut_employe": employe.statut,
         "type_contrat": employe.type_contrat or "CDI",
+        "situation_familiale": getattr(employe, "situation_familiale", None) or "—",
+        # Entité employeur et devise associée : un salarié ARRA France doit voir
+        # des euros sur son bulletin, pas des dirhams.
+        "entite": entite,
+        "entite_libelle": "ARRA ENGINEERING France" if entite == "FR" else "ARRA ENGINEERING SARL (AU)",
+        "devise": devise,
         "cin": employe.cin or "—",
         "cnss": employe.cnss or "—",
         "adresse": employe.adresse or "—",
         "telephone": employe.telephone or "—",
         "date_generation": datetime.now().strftime("%d/%m/%Y"),
-        "lieu_signature": "Casablanca",
+        "lieu_signature": "Paris" if entite == "FR" else "Casablanca",
         "signataire_nom": "El Mahdi HMOUCH",
-        "signataire_fonction": "Directeur ARRA ENGINEERING Maroc",
+        "signataire_fonction": f"Directeur ARRA ENGINEERING {'France' if entite == 'FR' else 'Maroc'}",
         "signature_url": _to_abs(sig_row.valeur if sig_row else None),
         "cachet_url": _to_abs(cachet_row.valeur if cachet_row else None),
         # Logo ARRA en en-tête des documents générés
         "logo_url": _logo_data_uri(),
     }
+
+    # ⚠️ Le bulletin de paie applique le barème MAROCAIN (CNSS 4,48 %, AMO
+    # 2,26 %, IR). Pour un salarié ARRA France, il faudrait les cotisations
+    # françaises (URSSAF, retraite complémentaire, CSG/CRDS) : changer la seule
+    # devise produirait un bulletin en euros aux taux marocains, c'est-à-dire un
+    # document faux. On refuse plutôt que d'en émettre un.
+    if demande.type == "bulletin_paie" and entite == "FR":
+        raise RuntimeError(
+            "Bulletin de paie indisponible pour un salarié ARRA France : le barème "
+            "de cotisations françaises n'est pas encore paramétré. Déposez le "
+            "bulletin établi par votre gestionnaire de paie dans « Documents »."
+        )
 
     # donnees_collectees overrides base — but restore numeric types
     donnees = {**base, **demande.donnees_collectees}

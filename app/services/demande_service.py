@@ -57,7 +57,8 @@ DEMANDES_CONFIG = {
     "demande_avance_salaire": {
         "label": "Demande d'avance sur salaire",
         "champs": ["montant", "motif"],
-        "questions": {"montant": "Montant (MAD)", "motif": "Motif"},
+        # « {devise} » est remplacé par la devise du salarié (cf. champs_meta)
+        "questions": {"montant": "Montant ({devise})", "motif": "Motif"},
     },
     "certificat_presence": {"label": "Certificat de présence", "champs": [], "questions": {}},
     "demande_formation": {
@@ -94,12 +95,16 @@ CONGE_TYPES = [
 DATE_ISO_RE = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def champs_meta(type_demande: str) -> list[dict]:
-    """Décrit les champs d'un type pour un formulaire dynamique (nom, label, type, options)."""
+def champs_meta(type_demande: str, devise: str = "MAD") -> list[dict]:
+    """Décrit les champs d'un type pour un formulaire dynamique (nom, label, type, options).
+
+    `devise` renseigne les libellés monétaires : un salarié ARRA France doit
+    saisir un montant en euros, pas en dirhams.
+    """
     config = DEMANDES_CONFIG.get(type_demande, {})
     metas: list[dict] = []
     for champ in config.get("champs", []):
-        label = config.get("questions", {}).get(champ, champ)
+        label = config.get("questions", {}).get(champ, champ).replace("{devise}", devise)
         if champ == "type_conge":
             metas.append({"name": champ, "label": label, "type": "select",
                           "options": [{"value": v, "label": lab} for v, lab in CONGE_TYPES]})

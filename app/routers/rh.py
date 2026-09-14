@@ -319,9 +319,13 @@ def pilotage(
     annee = aujourdhui.year
     dans_30j = aujourdhui + timedelta(days=30)
 
+    from app.services.devises import totaliser_par_entite
+
     employes = db.query(Employe).all()
     actifs = [e for e in employes if e.statut == "actif"]
-    masse_salariale = sum(float(e.salaire_base) for e in actifs)
+    # ⚠️ Ventilée par entité : additionner des dirhams et des euros donnerait
+    # un total faux. Une entité sans salarié actif n'apparaît pas.
+    masse_salariale = totaliser_par_entite(actifs)
 
     # Répartition par département (aide à repérer les déséquilibres)
     par_departement: dict[str, int] = {}

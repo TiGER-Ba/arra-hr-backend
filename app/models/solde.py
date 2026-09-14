@@ -4,13 +4,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
+# Unité « monnaie » : marqueur résolu à la création du solde en MAD ou EUR,
+# selon l'entité de rattachement du salarié (cf. services/devises.py).
+UNITE_MONNAIE = "monnaie"
+
 # Types de soldes gérés
 SOLDE_TYPES = {
-    "conge_annuel":           {"label": "Congés annuels",            "unite": "jours", "default_quota": 18.0},
-    "conge_maladie":          {"label": "Congés maladie",            "unite": "jours", "default_quota": 0.0},
-    "formation":              {"label": "Jours de formation",        "unite": "jours", "default_quota": 5.0},
-    "avance_salaire_plafond": {"label": "Plafond d'avance salaire",  "unite": "MAD",   "default_quota": 0.0},
-    "teletravail":            {"label": "Jours de télétravail",      "unite": "jours", "default_quota": 0.0},
+    "conge_annuel":           {"label": "Congés annuels",            "unite": "jours",        "default_quota": 18.0},
+    "conge_maladie":          {"label": "Congés maladie",            "unite": "jours",        "default_quota": 0.0},
+    "formation":              {"label": "Jours de formation",        "unite": "jours",        "default_quota": 5.0},
+    "avance_salaire_plafond": {"label": "Plafond d'avance salaire",  "unite": UNITE_MONNAIE,  "default_quota": 0.0},
+    "teletravail":            {"label": "Jours de télétravail",      "unite": "jours",        "default_quota": 0.0},
 }
 
 
@@ -23,7 +27,7 @@ class SoldeEmploye(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     employe_id: Mapped[int] = mapped_column(Integer, ForeignKey("employes.id", ondelete="CASCADE"), nullable=False, index=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False)  # cf SOLDE_TYPES
-    unite: Mapped[str] = mapped_column(String(10), nullable=False, default="jours")  # jours | MAD
+    unite: Mapped[str] = mapped_column(String(10), nullable=False, default="jours")  # jours | MAD | EUR
     quota_total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     consomme: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     annee_reference: Mapped[int] = mapped_column(Integer, nullable=False, index=True)

@@ -26,10 +26,19 @@ class DemandeCreate(BaseModel):
 
 
 @router.get("/types")
-def types_demandes(current_user: Utilisateur = Depends(get_current_user)):
+def types_demandes(
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Config des types de documents demandables (pour le formulaire dynamique)."""
+    from app.services.devises import devise_employe
+
+    # Les libellés monétaires suivent l'entité du demandeur (MAD ou EUR)
+    employe = db.query(Employe).filter(Employe.utilisateur_id == current_user.id).first()
+    devise = devise_employe(employe) if employe else "MAD"
+
     return [
-        {"key": k, "label": v["label"], "champs": champs_meta(k)}
+        {"key": k, "label": v["label"], "champs": champs_meta(k, devise)}
         for k, v in DEMANDES_CONFIG.items()
     ]
 

@@ -1013,8 +1013,12 @@ def export_paie(
         cell.alignment = header_align
         cell.border = thin
 
+    from app.services.devises import formater_montant
+
     for i, r in enumerate(rows, 2):
-        sal = f"{r['sal_net']:,.2f} MAD".replace(",", " ")
+        # La devise suit l'entité du salarié : une même colonne peut donc
+        # contenir des dirhams et des euros, chacun explicitement libellé.
+        sal = formater_montant(r["sal_net"], r.get("entite"))
         majorables = r.get("exceptionnel") or 0
         values = [
             r["type"], r["nom"], r["prenom"], sal, "",

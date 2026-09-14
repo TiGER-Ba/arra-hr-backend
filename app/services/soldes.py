@@ -8,7 +8,15 @@ from app.models.solde import SOLDE_TYPES, MouvementSolde, SoldeEmploye
 
 def initialiser_soldes_par_defaut(db: Session, employe_id: int, annee: int | None = None):
     """Crée les soldes par défaut pour un nouvel employé."""
+    from app.models.employee import Employe
+    from app.models.solde import UNITE_MONNAIE
+    from app.services.devises import devise_employe
+
     annee = annee or datetime.now().year
+    # Le plafond d'avance est un montant : sa devise suit l'entité du salarié.
+    emp = db.query(Employe).filter(Employe.id == employe_id).first()
+    devise = devise_employe(emp) if emp else "MAD"
+
     for type_solde, config in SOLDE_TYPES.items():
         existe = db.query(SoldeEmploye).filter(
             SoldeEmploye.employe_id == employe_id,
@@ -20,7 +28,7 @@ def initialiser_soldes_par_defaut(db: Session, employe_id: int, annee: int | Non
         db.add(SoldeEmploye(
             employe_id=employe_id,
             type=type_solde,
-            unite=config["unite"],
+            unite=devise if config["unite"] == UNITE_MONNAIE else config["unite"],
             quota_total=config["default_quota"],
             consomme=0,
             annee_reference=annee,
@@ -167,7 +175,8 @@ def appliquer_deduction_sur_validation(db: Session, demande: Demande, rh_id: int
             ajuster_solde(
                 db, solde,
                 delta=-montant,
-                motif=f"Avance sur salaire : {montant} MAD",
+                # Le solde porte déjà sa devise, résolue à sa création
+                motif=f"Avance sur salaire : {montant} {solde.unite}",
                 demande_id=demande.id,
                 rh_id=rh_id,
             )

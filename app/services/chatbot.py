@@ -137,13 +137,19 @@ def _build_profil(employe) -> str:
         anciennete = f" ({annees} an(s) et {mois} mois d'ancienneté)"
     except Exception:
         pass
+    from app.services.devises import formater_montant
+
+    entite = getattr(employe, "entite", None) or "MA"
     return (
         f"- Nom : {employe.utilisateur.nom}\n"
         f"- Email : {employe.utilisateur.email}\n"
         f"- Matricule : {employe.matricule}\n"
         f"- Poste : {employe.poste}\n"
         f"- Département : {employe.departement}\n"
-        f"- Salaire de base : {float(employe.salaire_base):,.2f} MAD\n"
+        f"- Entité : {'ARRA France' if entite == 'FR' else 'ARRA Maroc'}\n"
+        # Devise selon l'entité — sans quoi le chatbot annoncerait des dirhams
+        # à un salarié payé en euros.
+        f"- Salaire : {formater_montant(employe.salaire_base, entite)}\n"
         f"- Date d'embauche : {employe.date_embauche}{anciennete}\n"
         f"- Statut : {employe.statut}"
     )
