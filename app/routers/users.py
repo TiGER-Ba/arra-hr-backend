@@ -76,6 +76,38 @@ def _valider_fiche(payload, requis=CHAMPS_FICHE_REQUIS) -> None:
         )
 
 
+# Seule situation qui ouvre la saisie du nombre d'enfants (cf. formulaire).
+SITUATION_AVEC_ENFANTS = "Marié(e)"
+MAX_ENFANTS = 20
+
+
+def _resoudre_enfants(situation: str | None, nombre) -> int | None:
+    """Nombre d'enfants cohérent avec la situation familiale.
+
+    Marié(e) → valeur exigée (0 accepté, et distinct de « non renseigné »).
+    Toute autre situation → NULL : le champ n'est pas affiché, il ne doit donc
+    pas conserver en base une valeur devenue invisible, qui ressortirait ensuite
+    dans les documents générés.
+    """
+    if situation != SITUATION_AVEC_ENFANTS:
+        return None
+    if nombre in (None, ""):
+        raise HTTPException(
+            status_code=400,
+            detail="Nombre d'enfants requis pour un salarié marié",
+        )
+    try:
+        valeur = int(nombre)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nombre d'enfants invalide")
+    if not (0 <= valeur <= MAX_ENFANTS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nombre d'enfants attendu entre 0 et {MAX_ENFANTS}",
+        )
+    return valeur
+
+
 def _valider_enum(valeur: str | None, autorisees: set[str], libelle: str) -> str | None:
     if valeur in (None, ""):
         return None
@@ -142,6 +174,7 @@ class UserCreate(BaseModel):
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = "CDI"
     situation_familiale: Optional[str] = None
+    nombre_enfants: Optional[int] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -163,6 +196,7 @@ class UserUpdate(BaseModel):
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = None
     situation_familiale: Optional[str] = None
+    nombre_enfants: Optional[int] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -183,6 +217,7 @@ class FicheSalarieCreate(BaseModel):
     type_contrat: Optional[str] = "CDI"
     entite: Optional[str] = "MA"                  # MA | FR — calendrier des fériés
     situation_familiale: Optional[str] = None
+    nombre_enfants: Optional[int] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -298,6 +333,7 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "statut": e.statut, "type_contrat": e.type_contrat,
             "entite": getattr(e, "entite", None) or "MA",
             "situation_familiale": getattr(e, "situation_familiale", None),
+            "nombre_enfants": getattr(e, "nombre_enfants", None),
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
     d["est_salarie"] = u.employe is not None
@@ -540,6 +576,7 @@ def creer_utilisateur(
             type_contrat=payload.type_contrat or "CDI",
             entite=entite,
             situation_familiale=payload.situation_familiale,
+            nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
             cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
@@ -621,6 +658,16 @@ def modifier_utilisateur(
             val = getattr(payload, attr)
             if val is not None:
                 setattr(e, attr, val)
+
+        # Le nombre d'enfants suit la situation *résultante*, pas celle du
+        # payload : sans cela, un salarié marié qui passe célibataire garderait
+        # ses enfants en base alors que le champ disparaît du formulaire.
+        if payload.situation_familiale is not None or payload.nombre_enfants is not None:
+            e.nombre_enfants = _resoudre_enfants(
+                e.situation_familiale,
+                payload.nombre_enfants if payload.nombre_enfants is not None else e.nombre_enfants,
+            )
+
         assurer_departement(db, payload.departement)
 
     log_action(
@@ -721,6 +768,7 @@ def ajouter_fiche_salarie(
         type_contrat=payload.type_contrat or "CDI",
         entite=entite,
         situation_familiale=payload.situation_familiale,
+        nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
         cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)

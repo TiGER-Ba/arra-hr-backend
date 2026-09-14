@@ -82,6 +82,8 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         "statut_employe": employe.statut,
         "type_contrat": employe.type_contrat or "CDI",
         "situation_familiale": getattr(employe, "situation_familiale", None) or "—",
+        # Nul si le salarié n'est pas marié : le template ne doit rien afficher
+        "nombre_enfants": getattr(employe, "nombre_enfants", None),
         # Entité employeur et devise associée : un salarié ARRA France doit voir
         # des euros sur son bulletin, pas des dirhams.
         "entite": entite,

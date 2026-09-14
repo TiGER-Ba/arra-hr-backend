@@ -599,6 +599,7 @@ def _employe_to_dict(e: Employe) -> dict:
         "type_contrat": e.type_contrat,
         "entite": getattr(e, "entite", None) or "MA",
         "situation_familiale": getattr(e, "situation_familiale", None),
+        "nombre_enfants": getattr(e, "nombre_enfants", None),
         "cin": e.cin,
         "cnss": e.cnss,
         "adresse": e.adresse,

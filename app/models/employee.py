@@ -23,6 +23,10 @@ class Employe(Base):
     # Célibataire | Marié(e) | Divorcé(e) | Veuf(ve). Nullable en base pour les
     # fiches antérieures à son ajout ; exigé à la saisie.
     situation_familiale: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Renseigné uniquement pour un salarié marié — remis à NULL sinon, pour que
+    # la donnée stockée corresponde toujours à ce que le formulaire affiche.
+    # 0 est une valeur valide et se distingue de « non renseigné ».
+    nombre_enfants: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cin: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cnss: Mapped[str | None] = mapped_column(String(30), nullable=True)
     adresse: Mapped[str | None] = mapped_column(String(255), nullable=True)

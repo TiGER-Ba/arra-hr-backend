@@ -64,6 +64,8 @@ def _migrer_employes() -> None:
     # Situation familiale : exigée à la saisie, laissée nulle sur les fiches
     # antérieures — le RH la complète à la première modification.
     _add_column(cols, "employes", "situation_familiale", "VARCHAR(20)")
+    # Nombre d'enfants : lié à la situation familiale, nul si non marié.
+    _add_column(cols, "employes", "nombre_enfants", "INTEGER")
 
 
 def _migrer_matricules() -> None:
