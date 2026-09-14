@@ -125,7 +125,8 @@ def _envoyer_invitation_email(db: Session, user: Utilisateur, invite_url: str) -
 class UserCreate(BaseModel):
     nom: str
     prenom: Optional[str] = None
-    email: Optional[EmailStr] = None  # auto-généré si absent
+    email: Optional[EmailStr] = None  # ARRA, auto-généré si absent
+    email_personnel: Optional[EmailStr] = None  # adresse perso (Gmail…)
     mot_de_passe: Optional[str] = None  # requis SAUF si envoyer_invitation=True
     envoyer_invitation: Optional[bool] = False
     role: str  # employe | rh | admin
@@ -151,6 +152,7 @@ class UserUpdate(BaseModel):
     nom: Optional[str] = None
     prenom: Optional[str] = None
     email: Optional[EmailStr] = None
+    email_personnel: Optional[EmailStr] = None
     is_active: Optional[bool] = None
     service: Optional[str] = None                 # RH
     poste: Optional[str] = None                   # employé
@@ -281,6 +283,7 @@ def _user_to_dict(u: Utilisateur) -> dict:
         "nom": u.nom,
         "prenom": u.prenom,
         "email": u.email,
+        "email_personnel": getattr(u, "email_personnel", None),
         "role": u.role,
         "is_active": u.is_active,
         "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -516,6 +519,7 @@ def creer_utilisateur(
         nom=payload.nom,
         prenom=payload.prenom,
         email=email,
+        email_personnel=str(payload.email_personnel) if payload.email_personnel else None,
         mot_de_passe=get_password_hash(raw_password),
         role=payload.role,
     )
@@ -588,6 +592,8 @@ def modifier_utilisateur(
         if db.query(Utilisateur).filter(Utilisateur.email == str(payload.email), Utilisateur.id != user_id).first():
             raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
         user.email = str(payload.email)
+    if payload.email_personnel is not None:
+        user.email_personnel = str(payload.email_personnel) or None
     if payload.is_active is not None and payload.is_active != user.is_active:
         _guard_deactivation(user, payload.is_active, current_user, db)
         user.is_active = payload.is_active

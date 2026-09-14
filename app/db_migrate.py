@@ -141,6 +141,9 @@ def _migrer_utilisateurs() -> None:
     _add_column(cols, "utilisateurs", "prenom", "VARCHAR(100)")
     _add_column(cols, "utilisateurs", "invite_token", "VARCHAR(128)")
     _add_column(cols, "utilisateurs", "invite_token_expire", "TIMESTAMP")
+    # Adresse personnelle, distincte de l'adresse ARRA de connexion.
+    # Nullable : les comptes créés avant son ajout n'en ont pas.
+    _add_column(cols, "utilisateurs", "email_personnel", "VARCHAR(150)")
 
 
 def _migrer_templates() -> None:

@@ -589,6 +589,7 @@ def _employe_to_dict(e: Employe) -> dict:
         "utilisateur_id": e.utilisateur_id,
         "nom": e.utilisateur.nom,
         "email": e.utilisateur.email,
+        "email_personnel": getattr(e.utilisateur, "email_personnel", None),
         "matricule": e.matricule,
         "poste": e.poste,
         "departement": e.departement,

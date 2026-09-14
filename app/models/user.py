@@ -11,7 +11,11 @@ class Utilisateur(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nom: Mapped[str] = mapped_column(String(100), nullable=False)
     prenom: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Adresse professionnelle ARRA — sert d'identifiant de connexion
     email: Mapped[str] = mapped_column(String(150), unique=True, nullable=False, index=True)
+    # Adresse personnelle du salarié (Gmail…). PAS d'unicité : deux comptes
+    # peuvent légitimement la partager, et elle ne sert jamais à se connecter.
+    email_personnel: Mapped[str | None] = mapped_column(String(150), nullable=True)
     mot_de_passe: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # employe | rh | admin
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
