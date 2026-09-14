@@ -19,6 +19,18 @@ CIBLE="${1:-tout}"
 
 cd "$RACINE"
 
+# ── Verrou : un seul déploiement à la fois ───────────────────────────────────
+# Le backend et le frontend vivent dans DEUX dépôts distincts, qui déclenchent
+# ce script indépendamment. Le « concurrency » de GitHub Actions est par dépôt :
+# il ne sérialise donc RIEN entre les deux. Deux `docker compose up --build`
+# lancés en parallèle sur le même projet se marchent dessus, et l'un des deux
+# conteneurs n'est pas reconstruit — en silence, le workflow restant vert.
+exec 9>/var/lock/arra-admin-deploy.lock
+if ! flock -w 1200 9; then
+  echo "❌ Un déploiement est déjà en cours depuis plus de 20 min — abandon."
+  exit 1
+fi
+
 echo "════════════════════════════════════════════════════════"
 echo "  Déploiement ARRA ADMIN — cible : $CIBLE"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
@@ -26,8 +38,12 @@ echo "════════════════════════�
 
 echo
 echo "── 1/5 · Récupération du code ──"
+AVANT_API=$(git -C backend rev-parse HEAD)
+AVANT_WEB=$(git -C frontend rev-parse HEAD)
 git -C backend pull --ff-only
 git -C frontend pull --ff-only
+APRES_API=$(git -C backend rev-parse HEAD)
+APRES_WEB=$(git -C frontend rev-parse HEAD)
 
 echo
 echo "── 2/5 · Synchronisation du docker-compose ──"
@@ -37,10 +53,22 @@ cp -f backend/deploy/docker-compose.yml "$RACINE/docker-compose.yml"
 echo
 echo "── 3/5 · Reconstruction ──"
 case "$CIBLE" in
-  api)  docker compose -p "$PROJET" up -d --build api ;;
-  web)  docker compose -p "$PROJET" up -d --build web ;;
-  *)    docker compose -p "$PROJET" up -d --build ;;
+  api)  SERVICES=(api) ;;
+  web)  SERVICES=(web) ;;
+  *)    SERVICES=(api web) ;;
 esac
+
+# Filet de sécurité : ce script pull TOUJOURS les deux dépôts, mais ne
+# reconstruit que la cible demandée. Si un dépôt a bougé sans que son conteneur
+# soit visé — déploiement précédent perdu, ou code déjà pull par l'autre
+# workflow — le code resterait sur le disque sans jamais être construit.
+# On reconstruit donc aussi tout ce qui a réellement changé.
+if [ "$AVANT_API" != "$APRES_API" ]; then SERVICES+=(api); fi
+if [ "$AVANT_WEB" != "$APRES_WEB" ]; then SERVICES+=(web); fi
+mapfile -t SERVICES < <(printf '%s\n' "${SERVICES[@]}" | sort -u)
+
+echo "  services reconstruits : ${SERVICES[*]}"
+docker compose -p "$PROJET" up -d --build "${SERVICES[@]}"
 
 echo
 echo "── 4/5 · Vérification ARRA ADMIN ──"
