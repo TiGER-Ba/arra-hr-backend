@@ -20,6 +20,9 @@ class Employe(Base):
     # Détermine le calendrier de jours fériés appliqué à sa feuille de temps.
     entite: Mapped[str] = mapped_column(String(2), nullable=False, default="MA")
     type_contrat: Mapped[str] = mapped_column(String(20), default="CDI")  # CDI | CDD | Stage | Freelance
+    # Célibataire | Marié(e) | Divorcé(e) | Veuf(ve). Nullable en base pour les
+    # fiches antérieures à son ajout ; exigé à la saisie.
+    situation_familiale: Mapped[str | None] = mapped_column(String(20), nullable=True)
     cin: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cnss: Mapped[str | None] = mapped_column(String(30), nullable=True)
     adresse: Mapped[str | None] = mapped_column(String(255), nullable=True)

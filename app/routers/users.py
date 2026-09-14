@@ -11,7 +11,7 @@ Règles d'accès :
   - chaque utilisateur → peut modifier son propre mot de passe et ses infos perso.
 
 Email auto : {prénom[0]}.{nom}@{EMAIL_DOMAIN} (ex. w.baba@arra-engineering.com).
-Matricule auto : EMP### séquentiel.
+Matricule auto : ARRA-I### (interne) / ARRA-E### (freelance), compteur partagé.
 """
 import os
 import re
@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.models.departement import Departement
 from app.models.employee import Employe
 from app.models.rh import RH
 from app.models.user import Utilisateur
@@ -40,8 +41,50 @@ router = APIRouter()
 
 VALID_ROLES = {"employe", "rh", "admin"}
 VALID_STATUTS = {"actif", "inactif", "suspendu"}
+VALID_CONTRATS = {"CDI", "CDD", "Stage", "Freelance"}
+VALID_SITUATIONS = {"Célibataire", "Marié(e)", "Divorcé(e)", "Veuf(ve)"}
 MIN_PASSWORD_LEN = 6
 INVITE_TTL_DAYS = 7
+
+# Une fiche salarié doit être complète : ces champs conditionnent la paie, les
+# attestations et le pointage. Le CNSS est la seule exception — un freelance
+# n'en a pas, et un nouvel embauché ne l'obtient qu'après immatriculation.
+CHAMPS_FICHE_REQUIS = (
+    ("poste", "Poste"),
+    ("departement", "Département"),
+    ("salaire_base", "Salaire"),
+    ("date_embauche", "Date d'embauche"),
+    ("type_contrat", "Type de contrat"),
+    ("entite", "Entité de rattachement"),
+    ("situation_familiale", "Situation familiale"),
+    ("cin", "CIN"),
+    ("telephone", "Téléphone"),
+    ("adresse", "Adresse"),
+)
+
+
+def _valider_fiche(payload, requis=CHAMPS_FICHE_REQUIS) -> None:
+    """Refuse une fiche salarié incomplète, en nommant les champs manquants."""
+    manquants = [
+        libelle for champ, libelle in requis
+        if getattr(payload, champ, None) in (None, "")
+    ]
+    if manquants:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fiche salarié incomplète — champs requis : {', '.join(manquants)}",
+        )
+
+
+def _valider_enum(valeur: str | None, autorisees: set[str], libelle: str) -> str | None:
+    if valeur in (None, ""):
+        return None
+    if valeur not in autorisees:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{libelle} invalide. Valeurs : {', '.join(sorted(autorisees))}",
+        )
+    return valeur
 
 
 def _frontend_base() -> str:
@@ -97,6 +140,7 @@ class UserCreate(BaseModel):
     salaire_base: Optional[float] = None
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = "CDI"
+    situation_familiale: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -116,6 +160,7 @@ class UserUpdate(BaseModel):
     salaire_base: Optional[float] = None
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = None
+    situation_familiale: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -135,6 +180,7 @@ class FicheSalarieCreate(BaseModel):
     matricule: Optional[str] = None
     type_contrat: Optional[str] = "CDI"
     entite: Optional[str] = "MA"                  # MA | FR — calendrier des fériés
+    situation_familiale: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -186,15 +232,47 @@ def generate_email(prenom: str | None, nom: str | None, db: Session) -> str:
     return candidate
 
 
-def generate_matricule(db: Session) -> str:
-    """EMP### séquentiel = max(suffixe numérique) + 1."""
+# Matricules : ARRA-I### pour les internes (CDI, CDD, Stage),
+# ARRA-E### pour les externes (Freelance).
+MOTIF_MATRICULE = re.compile(r"^ARRA-[IE]0*(\d+)$", re.IGNORECASE)
+MOTIF_MATRICULE_LEGACY = re.compile(r"^EMP0*(\d+)$", re.IGNORECASE)
+
+
+def lettre_matricule(type_contrat: str | None) -> str:
+    """« E » pour un externe (freelance), « I » pour tous les autres contrats."""
+    return "E" if (type_contrat or "").strip().lower() == "freelance" else "I"
+
+
+def generate_matricule(db: Session, type_contrat: str | None = None) -> str:
+    """Matricule suivant : ARRA-{I|E}### .
+
+    Le compteur est **partagé** entre internes et externes : la lettre dit la
+    nature du contrat, le numéro dit l'ordre d'arrivée. La suite peut donc
+    donner E001, I002, I003, E004. Une fois attribué, le matricule ne bouge
+    plus — un freelance embauché en CDI garde son ARRA-E00X.
+    """
     rows = db.query(Employe.matricule).all()
     max_n = 0
     for (m,) in rows:
-        match = re.match(r"^EMP0*(\d+)$", (m or "").strip(), re.IGNORECASE)
+        valeur = (m or "").strip()
+        match = MOTIF_MATRICULE.match(valeur) or MOTIF_MATRICULE_LEGACY.match(valeur)
         if match:
             max_n = max(max_n, int(match.group(1)))
-    return f"EMP{max_n + 1:03d}"
+    return f"ARRA-{lettre_matricule(type_contrat)}{max_n + 1:03d}"
+
+
+def assurer_departement(db: Session, nom: str | None) -> None:
+    """Ajoute le département au référentiel s'il n'y figure pas encore.
+
+    La liste se remplit donc d'elle-même au fil des embauches : un département
+    saisi une fois est proposé à tous les suivants.
+    """
+    valeur = (nom or "").strip()
+    if not valeur:
+        return
+    existe = db.query(Departement).filter(func.lower(Departement.nom) == valeur.lower()).first()
+    if not existe:
+        db.add(Departement(nom=valeur))
 
 
 def _user_to_dict(u: Utilisateur) -> dict:
@@ -216,6 +294,7 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "date_embauche": e.date_embauche.isoformat() if e.date_embauche else None,
             "statut": e.statut, "type_contrat": e.type_contrat,
             "entite": getattr(e, "entite", None) or "MA",
+            "situation_familiale": getattr(e, "situation_familiale", None),
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
     d["est_salarie"] = u.employe is not None
@@ -354,6 +433,48 @@ def stats_utilisateurs(
     }
 
 
+# ─── Référentiel des départements ───────────────────────────────────────────
+# ⚠️ Déclaré AVANT les routes « /{user_id} » : sinon FastAPI tenterait de lire
+# « departements » comme un identifiant et renverrait une erreur de validation.
+
+class DepartementCreate(BaseModel):
+    nom: str
+
+
+@router.get("/departements")
+def liste_departements(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Départements proposés à la saisie, référentiel et fiches existantes réunis."""
+    noms = {d.nom for d in db.query(Departement).all()}
+    # Les fiches antérieures au référentiel ne doivent pas disparaître de la liste
+    noms.update(
+        d for (d,) in db.query(Employe.departement).distinct().all() if (d or "").strip()
+    )
+    return sorted(noms, key=str.casefold)
+
+
+@router.post("/departements", status_code=status.HTTP_201_CREATED)
+def creer_departement(
+    payload: DepartementCreate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    nom = (payload.nom or "").strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="Le nom du département est requis")
+    if len(nom) > 100:
+        raise HTTPException(status_code=400, detail="Nom trop long (100 caractères maximum)")
+    if db.query(Departement).filter(func.lower(Departement.nom) == nom.lower()).first():
+        raise HTTPException(status_code=400, detail="Ce département existe déjà")
+
+    db.add(Departement(nom=nom))
+    log_action(db, current_user, "departement.create", cible_type="departement", cible_libelle=nom)
+    db.commit()
+    return {"nom": nom}
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def creer_utilisateur(
     payload: UserCreate,
@@ -383,10 +504,11 @@ def creer_utilisateur(
     besoin_fiche = payload.role == "employe" or est_salarie
     matricule = None
     if besoin_fiche:
-        for f in ("poste", "departement", "salaire_base", "date_embauche"):
-            if getattr(payload, f) in (None, ""):
-                raise HTTPException(status_code=400, detail=f"Champ salarié requis : {f}")
-        matricule = (payload.matricule or "").strip() or generate_matricule(db)
+        _valider_fiche(payload)
+        _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
+        _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+        # La lettre du matricule découle du contrat et n'en changera plus ensuite
+        matricule = (payload.matricule or "").strip() or generate_matricule(db, payload.type_contrat)
         if db.query(Employe).filter(Employe.matricule == matricule).first():
             raise HTTPException(status_code=400, detail="Ce matricule est déjà utilisé")
 
@@ -413,11 +535,13 @@ def creer_utilisateur(
             date_embauche=payload.date_embauche,
             type_contrat=payload.type_contrat or "CDI",
             entite=entite,
+            situation_familiale=payload.situation_familiale,
             cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
         db.flush()
         initialiser_soldes_par_defaut(db, emp.id)
+        assurer_departement(db, payload.departement)
     if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
@@ -480,11 +604,18 @@ def modifier_utilisateur(
             if entite not in ("MA", "FR"):
                 raise HTTPException(status_code=400, detail="Entité invalide : « MA » ou « FR »")
             e.entite = entite
+        _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
+        _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+        # ⚠️ Le matricule n'est PAS recalculé : changer de contrat ne change pas
+        # d'identité. Un freelance passé en CDI garde son ARRA-E00X, sinon tous
+        # les documents déjà émis à son nom cesseraient de correspondre.
         for attr in ("poste", "departement", "salaire_base", "date_embauche",
-                     "type_contrat", "cin", "cnss", "adresse", "telephone"):
+                     "type_contrat", "situation_familiale",
+                     "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)
             if val is not None:
                 setattr(e, attr, val)
+        assurer_departement(db, payload.departement)
 
     log_action(
         db, current_user, "user.update",
@@ -562,7 +693,11 @@ def ajouter_fiche_salarie(
     if user.employe:
         raise HTTPException(status_code=400, detail="Ce compte a déjà une fiche salarié")
 
-    matricule = (payload.matricule or "").strip() or generate_matricule(db)
+    _valider_fiche(payload)
+    _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
+    _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+
+    matricule = (payload.matricule or "").strip() or generate_matricule(db, payload.type_contrat)
     if db.query(Employe).filter(Employe.matricule == matricule).first():
         raise HTTPException(status_code=400, detail="Ce matricule est déjà utilisé")
 
@@ -579,11 +714,13 @@ def ajouter_fiche_salarie(
         date_embauche=payload.date_embauche,
         type_contrat=payload.type_contrat or "CDI",
         entite=entite,
+        situation_familiale=payload.situation_familiale,
         cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)
     db.flush()
     initialiser_soldes_par_defaut(db, emp.id)
+    assurer_departement(db, payload.departement)
     log_action(
         db, current_user, "user.add_employe",
         cible_type="utilisateur", cible_id=user.id,

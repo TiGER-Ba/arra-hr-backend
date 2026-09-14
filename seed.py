@@ -99,7 +99,8 @@ USERS = [
     {
         "user": {"nom": "Benjelloun", "prenom": "Karim", "email": "karim@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
-            "matricule": "EMP001",
+            "matricule": "ARRA-I001",
+            "situation_familiale": "Marié(e)",
             "poste": "Ingénieur Logiciel",
             "departement": "Informatique",
             "salaire_base": 9500.00,
@@ -114,7 +115,8 @@ USERS = [
     {
         "user": {"nom": "El Amrani", "prenom": "Sara", "email": "sara@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
-            "matricule": "EMP002",
+            "matricule": "ARRA-I002",
+            "situation_familiale": "Célibataire",
             "poste": "Chef de Projet",
             "departement": "Gestion de Projet",
             "salaire_base": 11000.00,
@@ -129,7 +131,8 @@ USERS = [
     {
         "user": {"nom": "Tahiri", "prenom": "Ahmed", "email": "ahmed@arra.ma", "mot_de_passe": "emp123456", "role": "employe"},
         "extra": {
-            "matricule": "EMP003",
+            "matricule": "ARRA-I003",
+            "situation_familiale": "Marié(e)",
             "poste": "Analyste Financier",
             "departement": "Finance",
             "salaire_base": 8500.00,
@@ -208,6 +211,7 @@ def seed():
                     salaire_base=ex["salaire_base"],
                     date_embauche=ex["date_embauche"],
                     type_contrat=ex.get("type_contrat", "CDI"),
+                    situation_familiale=ex.get("situation_familiale"),
                     cin=ex.get("cin"),
                     cnss=ex.get("cnss"),
                     adresse=ex.get("adresse"),

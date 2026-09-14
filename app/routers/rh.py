@@ -592,6 +592,8 @@ def _employe_to_dict(e: Employe) -> dict:
         "date_embauche": e.date_embauche.isoformat(),
         "statut": e.statut,
         "type_contrat": e.type_contrat,
+        "entite": getattr(e, "entite", None) or "MA",
+        "situation_familiale": getattr(e, "situation_familiale", None),
         "cin": e.cin,
         "cnss": e.cnss,
         "adresse": e.adresse,

@@ -52,6 +52,7 @@ def run_migrations() -> None:
     _migrer_feuilles_temps()
     _migrer_employes()
     _migrer_feries()
+    _migrer_matricules()
 
 
 def _migrer_employes() -> None:
@@ -60,6 +61,58 @@ def _migrer_employes() -> None:
     if cols is None:
         return
     _add_column(cols, "employes", "entite", "VARCHAR(2) DEFAULT 'MA' NOT NULL")
+    # Situation familiale : exigée à la saisie, laissée nulle sur les fiches
+    # antérieures — le RH la complète à la première modification.
+    _add_column(cols, "employes", "situation_familiale", "VARCHAR(20)")
+
+
+def _migrer_matricules() -> None:
+    """Bascule les matricules historiques (EMP###) vers ARRA-I### / ARRA-E###.
+
+    La lettre vient du type de contrat : « E » pour un freelance (externe),
+    « I » pour tous les autres. Le compteur est PARTAGÉ — la numérotation suit
+    l'ordre d'arrivée, pas la nature du contrat.
+
+    Idempotent : une fiche déjà au nouveau format est laissée telle quelle, donc
+    un second passage ne renumérote rien. Les deux formats ne peuvent pas entrer
+    en collision, la renumérotation est donc sans risque d'unicité.
+    """
+    import re
+
+    cols = _colonnes("employes")
+    if cols is None:
+        return
+
+    try:
+        with engine.begin() as conn:
+            lignes = conn.execute(text(
+                "SELECT id, matricule, type_contrat FROM employes ORDER BY id"
+            )).fetchall()
+
+            motif = re.compile(r"^ARRA-[IE]0*(\d+)$", re.IGNORECASE)
+            a_migrer = []
+            deja = 0
+            for ligne in lignes:
+                trouve = motif.match((ligne[1] or "").strip())
+                if trouve:
+                    deja = max(deja, int(trouve.group(1)))
+                else:
+                    a_migrer.append(ligne)
+            if not a_migrer:
+                return
+
+            # Le rang dans l'ordre des id devient le numéro : l'ancienneté
+            # relative des salariés est conservée. On démarre au-dessus des
+            # matricules déjà au nouveau format, pour ne pas créer de doublon.
+            for rang, (emp_id, _ancien, contrat) in enumerate(a_migrer, start=deja + 1):
+                lettre = "E" if (contrat or "").strip().lower() == "freelance" else "I"
+                conn.execute(
+                    text("UPDATE employes SET matricule = :m WHERE id = :i"),
+                    {"m": f"ARRA-{lettre}{rang:03d}", "i": emp_id},
+                )
+            print(f"[migrate] {len(a_migrer)} matricule(s) renumérotés en ARRA-I/E###")
+    except Exception as e:
+        print(f"[migrate] renumérotation des matricules ignorée ({e})")
 
 
 def _migrer_feries() -> None:
