@@ -14,6 +14,7 @@ from app.models.audit import JournalAudit
 from app.models.pointage import Pointage, FeuilleTemps, JourFerie
 from app.models.crm import Societe, Projet, Affectation
 from app.models.departement import Departement
+from app.models.referentiel import ValeurReferentiel
 
 __all__ = [
     "Utilisateur",
@@ -37,4 +38,5 @@ __all__ = [
     "Projet",
     "Affectation",
     "Departement",
+    "ValeurReferentiel",
 ]

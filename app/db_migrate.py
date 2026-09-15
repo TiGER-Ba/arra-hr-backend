@@ -66,6 +66,13 @@ def _migrer_employes() -> None:
     _add_column(cols, "employes", "situation_familiale", "VARCHAR(20)")
     # Nombre d'enfants : lié à la situation familiale, nul si non marié.
     _add_column(cols, "employes", "nombre_enfants", "INTEGER")
+    # État civil et carrière. Tous nullables : les fiches antérieures ne les
+    # portent pas, le RH les complète à la première modification.
+    _add_column(cols, "employes", "date_naissance", "DATE")
+    _add_column(cols, "employes", "sexe", "VARCHAR(1)")
+    _add_column(cols, "employes", "nationalite", "VARCHAR(60)")
+    _add_column(cols, "employes", "date_premiere_experience", "DATE")
+    _add_column(cols, "employes", "numero_retraite", "VARCHAR(50)")
 
 
 def _migrer_matricules() -> None:

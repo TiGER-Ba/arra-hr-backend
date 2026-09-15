@@ -600,6 +600,14 @@ def _employe_to_dict(e: Employe) -> dict:
         "entite": getattr(e, "entite", None) or "MA",
         "situation_familiale": getattr(e, "situation_familiale", None),
         "nombre_enfants": getattr(e, "nombre_enfants", None),
+        "date_naissance": e.date_naissance.isoformat() if getattr(e, "date_naissance", None) else None,
+        "sexe": getattr(e, "sexe", None),
+        "nationalite": getattr(e, "nationalite", None),
+        "date_premiere_experience": (
+            e.date_premiere_experience.isoformat()
+            if getattr(e, "date_premiere_experience", None) else None
+        ),
+        "numero_retraite": getattr(e, "numero_retraite", None),
         "cin": e.cin,
         "cnss": e.cnss,
         "adresse": e.adresse,

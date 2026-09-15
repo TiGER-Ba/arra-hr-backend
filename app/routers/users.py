@@ -30,6 +30,9 @@ from app.config import settings
 from app.database import get_db
 from app.models.departement import Departement
 from app.models.employee import Employe
+from app.models.referentiel import (
+    CATEGORIE_NATIONALITE, NATIONALITE_DEFAUT, VALEURS_INITIALES, ValeurReferentiel,
+)
 from app.models.rh import RH
 from app.models.user import Utilisateur
 from app.services.audit import log_action
@@ -57,10 +60,17 @@ CHAMPS_FICHE_REQUIS = (
     ("type_contrat", "Type de contrat"),
     ("entite", "Entité de rattachement"),
     ("situation_familiale", "Situation familiale"),
+    ("date_naissance", "Date de naissance"),
+    ("sexe", "Sexe"),
+    ("nationalite", "Nationalité"),
     ("cin", "CIN"),
     ("telephone", "Téléphone"),
     ("adresse", "Adresse"),
 )
+
+# Facultatifs, et assumés comme tels :
+#   - numero_retraite : tous les salariés ne sont pas affiliés (CIMR au Maroc) ;
+#   - date_premiere_experience : carrière antérieure à ARRA, parfois inconnue.
 
 
 def _valider_fiche(payload, requis=CHAMPS_FICHE_REQUIS) -> None:
@@ -106,6 +116,47 @@ def _resoudre_enfants(situation: str | None, nombre) -> int | None:
             detail=f"Nombre d'enfants attendu entre 0 et {MAX_ENFANTS}",
         )
     return valeur
+
+
+VALID_SEXES = {"M", "F"}
+
+# Bornes de vraisemblance : elles n'expriment aucune politique RH, elles
+# attrapent les fautes de frappe (année 2026 au lieu de 1996, par exemple).
+AGE_MIN = 15          # âge légal de travail au Maroc
+AGE_MAX = 100
+
+
+def _valider_dates(date_naissance, date_premiere_experience, date_embauche) -> None:
+    """Refuse les dates impossibles, sans imposer de règle de gestion."""
+    aujourdhui = date.today()
+
+    if date_naissance:
+        age = (aujourdhui - date_naissance).days / 365.25
+        if age < AGE_MIN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Date de naissance : le salarié doit avoir au moins {AGE_MIN} ans",
+            )
+        if age > AGE_MAX:
+            raise HTTPException(status_code=400, detail="Date de naissance invalide")
+
+    if date_premiere_experience:
+        if date_premiere_experience > aujourdhui:
+            raise HTTPException(
+                status_code=400,
+                detail="La date de première expérience ne peut pas être dans le futur",
+            )
+        # Une carrière ne commence pas avant l'âge légal de travail
+        if date_naissance:
+            annees = (date_premiere_experience - date_naissance).days / 365.25
+            if annees < AGE_MIN:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La date de première expérience précède l'âge de travail du salarié",
+                )
+        # Elle peut en revanche être postérieure à l'embauche pour un débutant
+        # recruté avant son premier poste : on ne la compare pas à date_embauche.
+    _ = date_embauche
 
 
 def _valider_enum(valeur: str | None, autorisees: set[str], libelle: str) -> str | None:
@@ -175,6 +226,11 @@ class UserCreate(BaseModel):
     type_contrat: Optional[str] = "CDI"
     situation_familiale: Optional[str] = None
     nombre_enfants: Optional[int] = None
+    date_naissance: Optional[date] = None
+    sexe: Optional[str] = None                   # M | F
+    nationalite: Optional[str] = None
+    date_premiere_experience: Optional[date] = None
+    numero_retraite: Optional[str] = None        # facultatif
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -197,6 +253,11 @@ class UserUpdate(BaseModel):
     type_contrat: Optional[str] = None
     situation_familiale: Optional[str] = None
     nombre_enfants: Optional[int] = None
+    date_naissance: Optional[date] = None
+    sexe: Optional[str] = None
+    nationalite: Optional[str] = None
+    date_premiere_experience: Optional[date] = None
+    numero_retraite: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -218,6 +279,11 @@ class FicheSalarieCreate(BaseModel):
     entite: Optional[str] = "MA"                  # MA | FR — calendrier des fériés
     situation_familiale: Optional[str] = None
     nombre_enfants: Optional[int] = None
+    date_naissance: Optional[date] = None
+    sexe: Optional[str] = None
+    nationalite: Optional[str] = None
+    date_premiere_experience: Optional[date] = None
+    numero_retraite: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -312,6 +378,30 @@ def assurer_departement(db: Session, nom: str | None) -> None:
         db.add(Departement(nom=valeur))
 
 
+def assurer_valeur(db: Session, categorie: str, valeur: str | None) -> None:
+    """Ajoute la valeur au référentiel si elle n'y figure pas (comparaison insensible à la casse)."""
+    v = (valeur or "").strip()
+    if not v:
+        return
+    existe = db.query(ValeurReferentiel).filter(
+        ValeurReferentiel.categorie == categorie,
+        func.lower(ValeurReferentiel.valeur) == v.lower(),
+    ).first()
+    if not existe:
+        db.add(ValeurReferentiel(categorie=categorie, valeur=v))
+
+
+def _valeurs_referentiel(db: Session, categorie: str) -> list[str]:
+    """Valeurs d'une catégorie, en semant la liste initiale au premier appel."""
+    lignes = db.query(ValeurReferentiel).filter(ValeurReferentiel.categorie == categorie).all()
+    if not lignes:
+        for v in VALEURS_INITIALES.get(categorie, ()):
+            db.add(ValeurReferentiel(categorie=categorie, valeur=v))
+        db.commit()
+        lignes = db.query(ValeurReferentiel).filter(ValeurReferentiel.categorie == categorie).all()
+    return sorted({l.valeur for l in lignes}, key=str.casefold)
+
+
 def _user_to_dict(u: Utilisateur) -> dict:
     d = {
         "id": u.id,
@@ -334,6 +424,14 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "entite": getattr(e, "entite", None) or "MA",
             "situation_familiale": getattr(e, "situation_familiale", None),
             "nombre_enfants": getattr(e, "nombre_enfants", None),
+            "date_naissance": e.date_naissance.isoformat() if getattr(e, "date_naissance", None) else None,
+            "sexe": getattr(e, "sexe", None),
+            "nationalite": getattr(e, "nationalite", None),
+            "date_premiere_experience": (
+                e.date_premiere_experience.isoformat()
+                if getattr(e, "date_premiere_experience", None) else None
+            ),
+            "numero_retraite": getattr(e, "numero_retraite", None),
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
     d["est_salarie"] = u.employe is not None
@@ -514,6 +612,45 @@ def creer_departement(
     return {"nom": nom}
 
 
+@router.get("/nationalites")
+def liste_nationalites(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Nationalités proposées, référentiel et fiches existantes réunis."""
+    noms = set(_valeurs_referentiel(db, CATEGORIE_NATIONALITE))
+    # Une fiche peut porter une valeur retirée du référentiel : elle reste listée
+    noms.update(
+        n for (n,) in db.query(Employe.nationalite).distinct().all() if (n or "").strip()
+    )
+    return sorted(noms, key=str.casefold)
+
+
+@router.post("/nationalites", status_code=status.HTTP_201_CREATED)
+def creer_nationalite(
+    payload: DepartementCreate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    nom = (payload.nom or "").strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="La nationalité est requise")
+    if len(nom) > 60:
+        raise HTTPException(status_code=400, detail="Nom trop long (60 caractères maximum)")
+    deja = db.query(ValeurReferentiel).filter(
+        ValeurReferentiel.categorie == CATEGORIE_NATIONALITE,
+        func.lower(ValeurReferentiel.valeur) == nom.lower(),
+    ).first()
+    if deja:
+        raise HTTPException(status_code=400, detail="Cette nationalité existe déjà")
+
+    db.add(ValeurReferentiel(categorie=CATEGORIE_NATIONALITE, valeur=nom))
+    log_action(db, current_user, "nationalite.create",
+               cible_type="referentiel", cible_libelle=nom)
+    db.commit()
+    return {"nom": nom}
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def creer_utilisateur(
     payload: UserCreate,
@@ -546,6 +683,9 @@ def creer_utilisateur(
         _valider_fiche(payload)
         _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
         _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+        _valider_enum(payload.sexe, VALID_SEXES, "Sexe")
+        _valider_dates(payload.date_naissance, payload.date_premiere_experience,
+                       payload.date_embauche)
         # La lettre du matricule découle du contrat et n'en changera plus ensuite
         matricule = (payload.matricule or "").strip() or generate_matricule(db, payload.type_contrat)
         if db.query(Employe).filter(Employe.matricule == matricule).first():
@@ -577,12 +717,18 @@ def creer_utilisateur(
             entite=entite,
             situation_familiale=payload.situation_familiale,
             nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+            date_naissance=payload.date_naissance,
+            sexe=payload.sexe,
+            nationalite=payload.nationalite or NATIONALITE_DEFAUT,
+            date_premiere_experience=payload.date_premiere_experience,
+            numero_retraite=(payload.numero_retraite or "").strip() or None,
             cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
         db.flush()
         initialiser_soldes_par_defaut(db, emp.id)
         assurer_departement(db, payload.departement)
+        assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
     if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
@@ -649,11 +795,22 @@ def modifier_utilisateur(
             e.entite = entite
         _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
         _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+        _valider_enum(payload.sexe, VALID_SEXES, "Sexe")
+        # Contrôle sur les valeurs RÉSULTANTES : modifier la seule date de
+        # naissance doit rester cohérent avec la première expérience déjà en base.
+        _valider_dates(
+            payload.date_naissance if payload.date_naissance is not None else e.date_naissance,
+            (payload.date_premiere_experience if payload.date_premiere_experience is not None
+             else e.date_premiere_experience),
+            e.date_embauche,
+        )
         # ⚠️ Le matricule n'est PAS recalculé : changer de contrat ne change pas
         # d'identité. Un freelance passé en CDI garde son ARRA-E00X, sinon tous
         # les documents déjà émis à son nom cesseraient de correspondre.
         for attr in ("poste", "departement", "salaire_base", "date_embauche",
                      "type_contrat", "situation_familiale",
+                     "date_naissance", "sexe", "nationalite",
+                     "date_premiere_experience", "numero_retraite",
                      "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)
             if val is not None:
@@ -669,6 +826,7 @@ def modifier_utilisateur(
             )
 
         assurer_departement(db, payload.departement)
+        assurer_valeur(db, CATEGORIE_NATIONALITE, payload.nationalite)
 
     log_action(
         db, current_user, "user.update",
@@ -749,6 +907,9 @@ def ajouter_fiche_salarie(
     _valider_fiche(payload)
     _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
     _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
+    _valider_enum(payload.sexe, VALID_SEXES, "Sexe")
+    _valider_dates(payload.date_naissance, payload.date_premiere_experience,
+                   payload.date_embauche)
 
     matricule = (payload.matricule or "").strip() or generate_matricule(db, payload.type_contrat)
     if db.query(Employe).filter(Employe.matricule == matricule).first():
@@ -769,12 +930,18 @@ def ajouter_fiche_salarie(
         entite=entite,
         situation_familiale=payload.situation_familiale,
         nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+        date_naissance=payload.date_naissance,
+        sexe=payload.sexe,
+        nationalite=payload.nationalite or NATIONALITE_DEFAUT,
+        date_premiere_experience=payload.date_premiere_experience,
+        numero_retraite=(payload.numero_retraite or "").strip() or None,
         cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)
     db.flush()
     initialiser_soldes_par_defaut(db, emp.id)
     assurer_departement(db, payload.departement)
+    assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
     log_action(
         db, current_user, "user.add_employe",
         cible_type="utilisateur", cible_id=user.id,

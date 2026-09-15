@@ -27,6 +27,14 @@ class Employe(Base):
     # la donnée stockée corresponde toujours à ce que le formulaire affiche.
     # 0 est une valeur valide et se distingue de « non renseigné ».
     nombre_enfants: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    date_naissance: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sexe: Mapped[str | None] = mapped_column(String(1), nullable=True)  # M | F
+    nationalite: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Début de la carrière, y compris hors ARRA : sert à calculer l'expérience
+    # totale, distincte de l'ancienneté dans l'entreprise (date_embauche).
+    date_premiere_experience: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # CIMR au Maroc. Facultatif : tous les salariés n'y sont pas affiliés.
+    numero_retraite: Mapped[str | None] = mapped_column(String(50), nullable=True)
     cin: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cnss: Mapped[str | None] = mapped_column(String(30), nullable=True)
     adresse: Mapped[str | None] = mapped_column(String(255), nullable=True)
