@@ -13,7 +13,13 @@ class Employe(Base):
     matricule: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     poste: Mapped[str] = mapped_column(String(100), nullable=False)
     departement: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Salaire mensuel d'un INTERNE. Laissé à 0 pour un externe, qui est facturé
+    # au TJM : la colonne reste NOT NULL pour ne pas toucher aux fiches en base.
     salaire_base: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    # Tarif journalier d'un EXTERNE (freelance, prestataire). Null pour un
+    # salarié. À ne pas confondre avec Affectation.tjm, négocié par projet :
+    # celui-ci est le tarif par défaut de la personne.
+    tjm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     date_embauche: Mapped[date] = mapped_column(Date, nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default="actif")  # actif | inactif | suspendu
     # Entité employeur : « MA » (ARRA Maroc) ou « FR » (ARRA France).

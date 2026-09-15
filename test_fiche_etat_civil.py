@@ -43,7 +43,7 @@ def main():
         CATEGORIE_NATIONALITE, NATIONALITE_DEFAUT, ValeurReferentiel,
     )
     from app.routers.users import (
-        AGE_MIN, CHAMPS_FICHE_REQUIS, VALID_SEXES,
+        AGE_MIN, VALID_SEXES, champs_requis,
         _resoudre_enfants, _valeurs_referentiel, _valider_dates, _valider_enum, assurer_valeur,
     )
 
@@ -68,11 +68,13 @@ def main():
              "marié sans valeur transmise → refusé (ce que produisait le bug)")
 
     print("\n— 2. Champs exigés de la fiche —")
-    requis = {champ for champ, _ in CHAMPS_FICHE_REQUIS}
-    for champ in ("date_naissance", "sexe", "nationalite"):
-        verifier(champ in requis, f"{champ} est obligatoire")
-    for champ in ("numero_retraite", "date_premiere_experience"):
-        verifier(champ not in requis, f"{champ} reste facultatif")
+    # L'état civil vaut pour les deux natures, salarié comme externe
+    for contrat in ("CDI", "Freelance"):
+        requis = {champ for champ, _ in champs_requis(contrat)}
+        for champ in ("date_naissance", "sexe", "nationalite"):
+            verifier(champ in requis, f"{champ} est obligatoire ({contrat})")
+        for champ in ("numero_retraite", "date_premiere_experience"):
+            verifier(champ not in requis, f"{champ} reste facultatif ({contrat})")
 
     print("\n— 3. Sexe —")
     verifier(_valider_enum("M", VALID_SEXES, "Sexe") == "M", "M accepté")

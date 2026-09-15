@@ -73,6 +73,8 @@ def _migrer_employes() -> None:
     _add_column(cols, "employes", "nationalite", "VARCHAR(60)")
     _add_column(cols, "employes", "date_premiere_experience", "DATE")
     _add_column(cols, "employes", "numero_retraite", "VARCHAR(50)")
+    # Tarif journalier des externes (freelance, prestataire) — null pour un salarié.
+    _add_column(cols, "employes", "tjm", "NUMERIC(10,2)")
 
 
 def _migrer_matricules() -> None:

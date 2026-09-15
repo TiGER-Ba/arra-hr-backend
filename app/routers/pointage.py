@@ -593,7 +593,11 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
     debut, fin, _ = _mois_bornes(annee, mois)
     weekdays = _weekdays(annee, mois)
 
+    from app.routers.users import est_externe as _est_externe
     from app.services.feries import feries_du_mois, pays_employe
+
+    def _externe(emp) -> bool:
+        return _est_externe(emp.type_contrat)
 
     # Un calendrier par entité, calculé une seule fois pour tout le tableau
     feries_par_pays = {
@@ -643,7 +647,11 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
 
         rows.append({
             "employe_id": emp.id,
-            "type": "Salarié",
+            # Un externe est facturé au TJM : sa rémunération ne se lit pas
+            # comme un salaire mensuel, la colonne doit dire laquelle des deux.
+            "type": "Externe" if _externe(emp) else "Salarié",
+            "est_externe": _externe(emp),
+            "tjm": float(emp.tjm) if getattr(emp, "tjm", None) is not None else None,
             "nom": u.nom if u else "",
             "prenom": u.prenom if u else "",
             "sal_net": float(emp.salaire_base),
@@ -1018,7 +1026,12 @@ def export_paie(
     for i, r in enumerate(rows, 2):
         # La devise suit l'entité du salarié : une même colonne peut donc
         # contenir des dirhams et des euros, chacun explicitement libellé.
-        sal = formater_montant(r["sal_net"], r.get("entite"))
+        # Externe : on exporte son TJM, suffixé « /j » pour qu'il ne se lise
+        # jamais comme un salaire mensuel dans la colonne de paie.
+        if r.get("est_externe"):
+            sal = f"{formater_montant(r.get('tjm') or 0, r.get('entite'))} /j"
+        else:
+            sal = formater_montant(r["sal_net"], r.get("entite"))
         majorables = r.get("exceptionnel") or 0
         values = [
             r["type"], r["nom"], r["prenom"], sal, "",

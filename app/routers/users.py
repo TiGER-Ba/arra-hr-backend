@@ -44,7 +44,18 @@ router = APIRouter()
 
 VALID_ROLES = {"employe", "rh", "admin"}
 VALID_STATUTS = {"actif", "inactif", "suspendu"}
-VALID_CONTRATS = {"CDI", "CDD", "Stage", "Freelance"}
+# Nature de l'engagement. Elle n'est PAS stockée : elle se déduit du type de
+# contrat, ce qui évite qu'une colonne « externe » et le contrat se contredisent.
+CONTRATS_INTERNES = ("CDI", "CDD", "Stage")
+CONTRATS_EXTERNES = ("Freelance", "Prestataire")
+VALID_CONTRATS = set(CONTRATS_INTERNES) | set(CONTRATS_EXTERNES)
+
+
+def est_externe(type_contrat: str | None) -> bool:
+    """Un externe est facturé au TJM ; un interne est salarié."""
+    return (type_contrat or "").strip().lower() in {c.lower() for c in CONTRATS_EXTERNES}
+
+
 VALID_SITUATIONS = {"Célibataire", "Marié(e)", "Divorcé(e)", "Veuf(ve)"}
 MIN_PASSWORD_LEN = 6
 INVITE_TTL_DAYS = 7
@@ -52,14 +63,12 @@ INVITE_TTL_DAYS = 7
 # Une fiche salarié doit être complète : ces champs conditionnent la paie, les
 # attestations et le pointage. Le CNSS est la seule exception — un freelance
 # n'en a pas, et un nouvel embauché ne l'obtient qu'après immatriculation.
-CHAMPS_FICHE_REQUIS = (
+CHAMPS_FICHE_COMMUNS = (
     ("poste", "Poste"),
     ("departement", "Département"),
-    ("salaire_base", "Salaire"),
     ("date_embauche", "Date d'embauche"),
     ("type_contrat", "Type de contrat"),
     ("entite", "Entité de rattachement"),
-    ("situation_familiale", "Situation familiale"),
     ("date_naissance", "Date de naissance"),
     ("sexe", "Sexe"),
     ("nationalite", "Nationalité"),
@@ -68,22 +77,74 @@ CHAMPS_FICHE_REQUIS = (
     ("adresse", "Adresse"),
 )
 
+# Un salarié touche un salaire mensuel et relève du régime social (situation
+# familiale pour les charges de famille). Un externe est facturé au TJM et n'en
+# relève pas : lui réclamer ces informations n'aurait aucun sens.
+CHAMPS_FICHE_INTERNE = CHAMPS_FICHE_COMMUNS + (
+    ("salaire_base", "Salaire"),
+    ("situation_familiale", "Situation familiale"),
+)
+CHAMPS_FICHE_EXTERNE = CHAMPS_FICHE_COMMUNS + (
+    ("tjm", "TJM"),
+)
+
+
+def champs_requis(type_contrat: str | None):
+    return CHAMPS_FICHE_EXTERNE if est_externe(type_contrat) else CHAMPS_FICHE_INTERNE
+
 # Facultatifs, et assumés comme tels :
 #   - numero_retraite : tous les salariés ne sont pas affiliés (CIMR au Maroc) ;
 #   - date_premiere_experience : carrière antérieure à ARRA, parfois inconnue.
 
 
-def _valider_fiche(payload, requis=CHAMPS_FICHE_REQUIS) -> None:
-    """Refuse une fiche salarié incomplète, en nommant les champs manquants."""
+def _valider_fiche(payload, requis=None) -> None:
+    """Refuse une fiche incomplète, en nommant les champs manquants.
+
+    Les champs exigés dépendent de la nature : salaire et situation familiale
+    pour un salarié, TJM pour un externe.
+    """
+    requis = requis or champs_requis(getattr(payload, "type_contrat", None))
     manquants = [
         libelle for champ, libelle in requis
         if getattr(payload, champ, None) in (None, "")
     ]
     if manquants:
+        nature = "externe" if est_externe(getattr(payload, "type_contrat", None)) else "salarié"
         raise HTTPException(
             status_code=400,
-            detail=f"Fiche salarié incomplète — champs requis : {', '.join(manquants)}",
+            detail=f"Fiche {nature} incomplète — champs requis : {', '.join(manquants)}",
         )
+
+
+def _champs_selon_nature(payload) -> dict:
+    """Valeurs monétaires et sociales cohérentes avec la nature de l'engagement.
+
+    Un externe n'a ni salaire, ni situation familiale, ni CNSS : on force ces
+    champs à vide plutôt que d'enregistrer ce qu'un client aurait pu envoyer,
+    sinon la masse salariale et les documents reprendraient des valeurs fausses.
+    """
+    externe = est_externe(getattr(payload, "type_contrat", None))
+    if externe:
+        tjm = payload.tjm
+        if tjm is None or float(tjm) <= 0:
+            raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+        return {
+            "salaire_base": 0,      # colonne NOT NULL : 0 = « pas de salaire »
+            "tjm": float(tjm),
+            "situation_familiale": None,
+            "nombre_enfants": None,
+            "cnss": None,
+        }
+
+    if payload.salaire_base is None or float(payload.salaire_base) <= 0:
+        raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+    return {
+        "salaire_base": float(payload.salaire_base),
+        "tjm": None,
+        "situation_familiale": payload.situation_familiale,
+        "nombre_enfants": _resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+        "cnss": payload.cnss,
+    }
 
 
 # Seule situation qui ouvre la saisie du nombre d'enfants (cf. formulaire).
@@ -222,6 +283,7 @@ class UserCreate(BaseModel):
     poste: Optional[str] = None
     departement: Optional[str] = None
     salaire_base: Optional[float] = None
+    tjm: Optional[float] = None
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = "CDI"
     situation_familiale: Optional[str] = None
@@ -249,6 +311,7 @@ class UserUpdate(BaseModel):
     entite: Optional[str] = None                  # MA | FR
     departement: Optional[str] = None
     salaire_base: Optional[float] = None
+    tjm: Optional[float] = None
     date_embauche: Optional[date] = None
     type_contrat: Optional[str] = None
     situation_familiale: Optional[str] = None
@@ -272,7 +335,8 @@ class FicheSalarieCreate(BaseModel):
     """Rattache une fiche salarié à un compte rh/admin existant."""
     poste: str
     departement: str
-    salaire_base: float
+    salaire_base: Optional[float] = None
+    tjm: Optional[float] = None
     date_embauche: date
     matricule: Optional[str] = None
     type_contrat: Optional[str] = "CDI"
@@ -342,8 +406,8 @@ MOTIF_MATRICULE_LEGACY = re.compile(r"^EMP0*(\d+)$", re.IGNORECASE)
 
 
 def lettre_matricule(type_contrat: str | None) -> str:
-    """« E » pour un externe (freelance), « I » pour tous les autres contrats."""
-    return "E" if (type_contrat or "").strip().lower() == "freelance" else "I"
+    """« E » pour un externe (freelance, prestataire), « I » pour un salarié."""
+    return "E" if est_externe(type_contrat) else "I"
 
 
 def generate_matricule(db: Session, type_contrat: str | None = None) -> str:
@@ -419,6 +483,8 @@ def _user_to_dict(u: Utilisateur) -> dict:
         d.update({
             "employe_id": e.id, "matricule": e.matricule, "poste": e.poste,
             "departement": e.departement, "salaire_base": float(e.salaire_base),
+            "tjm": float(e.tjm) if getattr(e, "tjm", None) is not None else None,
+            "est_externe": est_externe(e.type_contrat),
             "date_embauche": e.date_embauche.isoformat() if e.date_embauche else None,
             "statut": e.statut, "type_contrat": e.type_contrat,
             "entite": getattr(e, "entite", None) or "MA",
@@ -711,18 +777,17 @@ def creer_utilisateur(
             matricule=matricule,
             poste=payload.poste,
             departement=payload.departement,
-            salaire_base=payload.salaire_base,
             date_embauche=payload.date_embauche,
             type_contrat=payload.type_contrat or "CDI",
             entite=entite,
-            situation_familiale=payload.situation_familiale,
-            nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+            # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
+            **_champs_selon_nature(payload),
             date_naissance=payload.date_naissance,
             sexe=payload.sexe,
             nationalite=payload.nationalite or NATIONALITE_DEFAUT,
             date_premiere_experience=payload.date_premiere_experience,
             numero_retraite=(payload.numero_retraite or "").strip() or None,
-            cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
+            cin=payload.cin, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
         db.flush()
@@ -807,7 +872,7 @@ def modifier_utilisateur(
         # ⚠️ Le matricule n'est PAS recalculé : changer de contrat ne change pas
         # d'identité. Un freelance passé en CDI garde son ARRA-E00X, sinon tous
         # les documents déjà émis à son nom cesseraient de correspondre.
-        for attr in ("poste", "departement", "salaire_base", "date_embauche",
+        for attr in ("poste", "departement", "salaire_base", "tjm", "date_embauche",
                      "type_contrat", "situation_familiale",
                      "date_naissance", "sexe", "nationalite",
                      "date_premiere_experience", "numero_retraite",
@@ -816,14 +881,29 @@ def modifier_utilisateur(
             if val is not None:
                 setattr(e, attr, val)
 
-        # Le nombre d'enfants suit la situation *résultante*, pas celle du
-        # payload : sans cela, un salarié marié qui passe célibataire garderait
-        # ses enfants en base alors que le champ disparaît du formulaire.
-        if payload.situation_familiale is not None or payload.nombre_enfants is not None:
-            e.nombre_enfants = _resoudre_enfants(
-                e.situation_familiale,
-                payload.nombre_enfants if payload.nombre_enfants is not None else e.nombre_enfants,
-            )
+        # Cohérence avec la nature RÉSULTANTE. Passer un salarié en freelance
+        # doit vider salaire, situation familiale, enfants et CNSS — et
+        # réciproquement — sinon la fiche garderait des valeurs contradictoires
+        # que la masse salariale et les documents reprendraient.
+        if est_externe(e.type_contrat):
+            if e.tjm is None or float(e.tjm) <= 0:
+                raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+            e.salaire_base = 0
+            e.situation_familiale = None
+            e.nombre_enfants = None
+            e.cnss = None
+        else:
+            e.tjm = None
+            if e.salaire_base is None or float(e.salaire_base) <= 0:
+                raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+            # Le nombre d'enfants suit la situation *résultante*, pas celle du
+            # payload : sans cela, un salarié marié qui passe célibataire
+            # garderait ses enfants alors que le champ disparaît du formulaire.
+            if payload.situation_familiale is not None or payload.nombre_enfants is not None:
+                e.nombre_enfants = _resoudre_enfants(
+                    e.situation_familiale,
+                    payload.nombre_enfants if payload.nombre_enfants is not None else e.nombre_enfants,
+                )
 
         assurer_departement(db, payload.departement)
         assurer_valeur(db, CATEGORIE_NATIONALITE, payload.nationalite)
@@ -924,18 +1004,17 @@ def ajouter_fiche_salarie(
         matricule=matricule,
         poste=payload.poste,
         departement=payload.departement,
-        salaire_base=payload.salaire_base,
         date_embauche=payload.date_embauche,
         type_contrat=payload.type_contrat or "CDI",
         entite=entite,
-        situation_familiale=payload.situation_familiale,
-        nombre_enfants=_resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+        # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
+        **_champs_selon_nature(payload),
         date_naissance=payload.date_naissance,
         sexe=payload.sexe,
         nationalite=payload.nationalite or NATIONALITE_DEFAUT,
         date_premiere_experience=payload.date_premiere_experience,
         numero_retraite=(payload.numero_retraite or "").strip() or None,
-        cin=payload.cin, cnss=payload.cnss, adresse=payload.adresse, telephone=payload.telephone,
+        cin=payload.cin, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)
     db.flush()

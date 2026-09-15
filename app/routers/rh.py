@@ -321,11 +321,17 @@ def pilotage(
 
     from app.services.devises import totaliser_par_entite
 
+    from app.routers.users import est_externe
+
     employes = db.query(Employe).all()
     actifs = [e for e in employes if e.statut == "actif"]
     # ⚠️ Ventilée par entité : additionner des dirhams et des euros donnerait
     # un total faux. Une entité sans salarié actif n'apparaît pas.
-    masse_salariale = totaliser_par_entite(actifs)
+    # ⚠️ Les EXTERNES en sont exclus : ils sont facturés au TJM, pas salariés —
+    # les compter ici gonflerait la masse salariale d'un montant qui n'en est pas.
+    masse_salariale = totaliser_par_entite(
+        [e for e in actifs if not est_externe(e.type_contrat)]
+    )
 
     # Répartition par département (aide à repérer les déséquilibres)
     par_departement: dict[str, int] = {}
@@ -594,6 +600,7 @@ def _employe_to_dict(e: Employe) -> dict:
         "poste": e.poste,
         "departement": e.departement,
         "salaire_base": float(e.salaire_base),
+        "tjm": float(e.tjm) if getattr(e, "tjm", None) is not None else None,
         "date_embauche": e.date_embauche.isoformat(),
         "statut": e.statut,
         "type_contrat": e.type_contrat,
