@@ -115,7 +115,6 @@ def _verifier_donnees(employe: Employe, type_modele: str) -> None:
     exige(employe.poste, "Poste")
     exige(employe.date_embauche, "Date d'embauche")
     exige(employe.date_naissance, "Date de naissance")
-    exige(employe.lieu_naissance, "Lieu de naissance")
     exige(employe.nationalite, "Nationalité")
     exige(employe.cin, "CIN")
     exige(employe.adresse, "Adresse personnelle")
@@ -126,13 +125,11 @@ def _verifier_donnees(employe: Employe, type_modele: str) -> None:
         exige(employe.tjm, "TJM")
 
     if type_modele == "contrat_prestation":
-        # Un contrat entre sociétés sans mentions légales n'a aucune valeur
+        # Seule la raison sociale est saisie : elle identifie le cocontractant.
+        # Les mentions légales (forme, capital, RC, siège, gérant) restent des
+        # colonnes facultatives — le modèle ne les affiche que si elles existent,
+        # plutôt que de laisser des virgules orphelines dans la clause des parties.
         exige(employe.presta_societe, "Société prestataire")
-        exige(employe.presta_forme, "Forme juridique de la société")
-        exige(employe.presta_capital, "Capital de la société")
-        exige(employe.presta_rc, "RC de la société")
-        exige(employe.presta_siege, "Siège social de la société")
-        exige(employe.presta_gerant, "Gérant de la société")
 
     if manquants:
         raise ContratIndisponible(

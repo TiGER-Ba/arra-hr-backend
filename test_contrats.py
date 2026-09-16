@@ -66,7 +66,7 @@ def main():
             poste="Ingénieur Logiciel", departement="Informatique",
             salaire_base=9500, tjm=None, date_embauche=date(2026, 9, 1),
             type_contrat=contrat, entite="MA", sexe="M",
-            date_naissance=date(1994, 3, 15), lieu_naissance="Casablanca",
+            date_naissance=date(1994, 3, 15),
             nationalite="Marocaine", cin="BK284571",
             adresse="12 rue des Lilas, Casablanca", telephone="+212 6",
         )
@@ -135,20 +135,20 @@ def main():
     verifier(len(tous) == 2, "un CDI puis un CDD → deux numéros", str(len(tous)))
 
     print("\n— 6. Une fiche incomplète est refusée, en nommant les manques —")
-    sans_lieu = creer("echo", "CDI", lieu_naissance=None)
+    sans_cin = creer("echo", "CDI", cin=None)
     try:
-        generer_pdf_contrat(db, sans_lieu)
-        verifier(False, "lieu de naissance manquant → refus")
+        generer_pdf_contrat(db, sans_cin)
+        verifier(False, "CIN manquante → refus")
     except ContratIndisponible as e:
-        verifier("Lieu de naissance" in str(e), "le refus nomme le champ manquant", str(e))
+        verifier("CIN" in str(e), "le refus nomme le champ manquant", str(e))
 
     presta_nu = creer("foxtrot", "Prestataire", salaire_base=0, tjm=3200)
     try:
         generer_pdf_contrat(db, presta_nu)
-        verifier(False, "société prestataire manquante → refus")
+        verifier(False, "raison sociale manquante → refus")
     except ContratIndisponible as e:
         verifier("Société prestataire" in str(e),
-                 "le refus cite les mentions légales manquantes", str(e))
+                 "le refus cite la raison sociale", str(e))
 
     stagiaire = creer("golf", "Stage")
     try:
@@ -158,9 +158,43 @@ def main():
         verifier("Stage" in str(e) or "modèle" in str(e),
                  "le refus explique qu'aucun modèle n'existe", str(e))
 
+    print("\n— 6bis. Les champs facultatifs dégradent proprement —")
+    # Seule la raison sociale est saisie au formulaire, et le lieu de naissance
+    # ne l'est plus du tout : les clauses ne doivent pas se retrouver avec des
+    # virgules orphelines ou un « à : » suivi de rien.
+    from jinja2 import Environment as _Env
+    from app.services.contrats import construire_donnees as _cd
+
+    def rendu_de(emp, type_modele):
+        c = db.query(Contrat).filter_by(employe_id=emp.id).first()
+        m = db.query(TemplateModel).filter_by(type=type_modele).first()
+        return _Env().from_string(m.contenu_html).render(**_cd(db, emp, c.numero))
+
+    presta_nom_seul = creer("hotel", "Prestataire", salaire_base=0, tjm=3200,
+                            presta_societe="ACME Consulting")
+    pdf, _ = generer_pdf_contrat(db, presta_nom_seul)
+    db.commit()
+    verifier(pdf[:4] == b"%PDF", "contrat produit sans les mentions légales")
+
+    html_presta = rendu_de(presta_nom_seul, "contrat_prestation")
+    verifier("ACME Consulting" in html_presta, "la raison sociale figure au contrat")
+    verifier("Registre de Commerce sous le numéro ," not in html_presta,
+             "aucun numéro de RC vide")
+    verifier("au capital social de ," not in html_presta, "aucun capital vide")
+    verifier("Représentée par son Gérant ," not in html_presta, "aucun gérant vide")
+
+    cdi_sans_lieu = creer("india", "CDI")
+    pdf, _ = generer_pdf_contrat(db, cdi_sans_lieu)
+    db.commit()
+    html_cdi = rendu_de(cdi_sans_lieu, "contrat_cdi")
+    verifier(", à : </div>" not in html_cdi,
+             "pas de « à : » orphelin sans lieu de naissance")
+    verifier("Né(e) le : 15/03/1994</div>" in html_cdi,
+             "la date de naissance reste affichée seule")
+
     print("\n— 7. Aucun numéro n'est consommé par un refus —")
-    verifier(db.query(Contrat).count() == 5,
-             "5 contrats en registre, les refus n'en ont créé aucun",
+    verifier(db.query(Contrat).count() == 7,
+             "7 contrats en registre, les refus n'en ont créé aucun",
              str(db.query(Contrat).count()))
 
     print("\n— 8. Le contenu reprend bien les données du salarié —")

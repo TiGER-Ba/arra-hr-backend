@@ -70,7 +70,6 @@ CHAMPS_FICHE_COMMUNS = (
     ("type_contrat", "Type de contrat"),
     ("entite", "Entité de rattachement"),
     ("date_naissance", "Date de naissance"),
-    ("lieu_naissance", "Lieu de naissance"),
     ("sexe", "Sexe"),
     ("nationalite", "Nationalité"),
     ("cin", "CIN"),

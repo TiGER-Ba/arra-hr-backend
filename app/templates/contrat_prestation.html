@@ -40,10 +40,11 @@
 
 <p><strong>ET D’AUTRE PART :</strong></p>
 <div class="partie">
-  <p><strong>{{ presta_societe }}</strong>, {{ presta_forme }}, au capital social de
-  {{ presta_capital }}, immatriculée au Registre de Commerce sous le numéro {{ presta_rc }},
-  ayant son siège social à {{ presta_siege }},<br>
-  Représentée par son Gérant {{ presta_gerant }},<br>
+  {# Les mentions légales sont facultatives : seule la raison sociale est saisie
+     à la création du compte. On n'affiche que ce qui est renseigné, sinon la
+     clause se retrouverait avec des virgules orphelines. #}
+  <p><strong>{{ presta_societe }}</strong>{% if presta_forme %}, {{ presta_forme }}{% endif %}{% if presta_capital %}, au capital social de {{ presta_capital }}{% endif %}{% if presta_rc %}, immatriculée au Registre de Commerce sous le numéro {{ presta_rc }}{% endif %}{% if presta_siege %}, ayant son siège social à {{ presta_siege }}{% endif %},
+  {% if presta_gerant %}<br>Représentée par son Gérant {{ presta_gerant }},{% endif %}<br>
   Ci-après dénommée « le Prestataire ».</p>
 </div>
 
@@ -154,7 +155,7 @@ cachet, avec le nom et le prénom.</p>
 
 <table class="signatures">
   <tr>
-    <td><strong>LE PRESTATAIRE</strong><br>{{ presta_societe }}<br>{{ presta_gerant }}</td>
+    <td><strong>LE PRESTATAIRE</strong><br>{{ presta_societe }}{% if presta_gerant %}<br>{{ presta_gerant }}{% endif %}</td>
     <td><strong>ARRA ENGINEERING SARL</strong><br>Le dirigeant : {{ signataire_nom }}</td>
   </tr>
   <tr>
