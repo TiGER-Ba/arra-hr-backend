@@ -3,7 +3,6 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -12,6 +11,7 @@ from app.models.document import Document
 from app.models.employee import Employe
 from app.models.parametrage import Parametrage
 from app.models.template import Template as TemplateModel
+from app.services.rendu import rendre_modele
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -137,9 +137,7 @@ def render_html(db: Session, demande_id: int) -> tuple[str, dict]:
     """Render template to HTML and return (html, donnees_as_strings)."""
     demande, template_db, donnees = _load_base_data(db, demande_id)
     try:
-        env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
-        jinja_template = env.from_string(template_db.contenu_html)
-        html_content = jinja_template.render(**donnees)
+        html_content = rendre_modele(template_db.contenu_html, **donnees)
     except Exception as e:
         raise RuntimeError(f"Erreur de rendu du template : {e}")
     # Return string-serialized donnees for frontend form
@@ -151,9 +149,7 @@ def generate_pdf(db: Session, demande_id: int, rh_id: int | None = None) -> Docu
     demande, template_db, donnees = _load_base_data(db, demande_id)
 
     try:
-        env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
-        jinja_template = env.from_string(template_db.contenu_html)
-        html_content = jinja_template.render(**donnees)
+        html_content = rendre_modele(template_db.contenu_html, **donnees)
     except Exception as e:
         raise RuntimeError(f"Erreur de rendu du template : {e}")
 

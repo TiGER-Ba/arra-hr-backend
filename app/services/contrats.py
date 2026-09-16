@@ -197,8 +197,9 @@ def construire_donnees(db: Session, employe: Employe, numero: str) -> dict:
 
 def generer_pdf_contrat(db: Session, employe: Employe, utilisateur_id: int | None = None) -> tuple[bytes, str]:
     """Renvoie (pdf, nom_de_fichier). Lève ContratIndisponible si c'est impossible."""
-    from jinja2 import Environment
     from weasyprint import HTML
+
+    from app.services.rendu import rendre_modele
 
     type_modele = modele_pour(employe.type_contrat)
     if not type_modele:
@@ -219,7 +220,7 @@ def generer_pdf_contrat(db: Session, employe: Employe, utilisateur_id: int | Non
     donnees = construire_donnees(db, employe, contrat.numero)
 
     try:
-        html = Environment().from_string(modele.contenu_html).render(**donnees)
+        html = rendre_modele(modele.contenu_html, **donnees)
         pdf = HTML(string=html).write_pdf()
     except Exception as e:  # noqa: BLE001
         raise ContratIndisponible(f"Erreur de rendu du contrat : {e}")

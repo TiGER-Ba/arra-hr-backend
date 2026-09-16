@@ -55,6 +55,9 @@ class Employe(Base):
     date_premiere_experience: Mapped[date | None] = mapped_column(Date, nullable=True)
     # CIMR au Maroc. Facultatif : tous les salariés n'y sont pas affiliés.
     numero_retraite: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # RIB / IBAN de virement. Facultatif : il n'est pas toujours connu à
+    # l'embauche, et un externe facture parfois depuis un autre compte.
+    rib: Mapped[str | None] = mapped_column(String(40), nullable=True)
     cin: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cnss: Mapped[str | None] = mapped_column(String(30), nullable=True)
     adresse: Mapped[str | None] = mapped_column(String(255), nullable=True)

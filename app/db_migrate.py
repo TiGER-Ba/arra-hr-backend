@@ -84,6 +84,8 @@ def _migrer_employes() -> None:
     _add_column(cols, "employes", "presta_rc", "VARCHAR(60)")
     _add_column(cols, "employes", "presta_siege", "VARCHAR(255)")
     _add_column(cols, "employes", "presta_gerant", "VARCHAR(150)")
+    # RIB de virement, facultatif
+    _add_column(cols, "employes", "rib", "VARCHAR(40)")
 
 
 def _migrer_matricules() -> None:

@@ -174,6 +174,31 @@ USERS = [
 ]
 
 
+def _alerter_comptes_demo(db) -> None:
+    """Signale, au démarrage, un compte de démonstration resté sur son mot de passe.
+
+    Ces comptes ont pu être créés avant que le seed ne les réserve au
+    développement. Tant qu'ils conservent leur mot de passe public, ils offrent
+    un accès — administrateur pour l'un d'eux — à qui connaît le dépôt.
+    """
+    from app.services.auth import verify_password
+
+    exposes = []
+    for entry in USERS:
+        u_data = entry["user"]
+        u = db.query(Utilisateur).filter(Utilisateur.email == u_data["email"]).first()
+        if u and verify_password(u_data["mot_de_passe"], u.mot_de_passe):
+            exposes.append(f"{u.email} ({u.role})")
+
+    if exposes:
+        print("\n" + "!" * 72)
+        print("!! ALERTE SÉCURITÉ — comptes de démonstration au mot de passe PUBLIC :")
+        for ligne in exposes:
+            print(f"!!   - {ligne}")
+        print("!! Changez ces mots de passe ou supprimez ces comptes IMMÉDIATEMENT.")
+        print("!" * 72 + "\n")
+
+
 def seed():
     db = SessionLocal()
     try:
@@ -208,6 +233,18 @@ def seed():
         db.commit()
         if crees or maj:
             print(f"  → {crees} créé(s), {maj} mis à jour")
+
+        # ── Comptes de démonstration ─────────────────────────────────────────
+        # ⚠️ Leurs mots de passe sont publics (ils figurent dans ce fichier et
+        # dans CLAUDE.md). Les créer en production ouvrirait un accès admin à
+        # qui connaît le dépôt — on ne les sème donc QU'EN développement.
+        from app.config import settings as _settings
+
+        if _settings.ENVIRONMENT == "production":
+            print("\n[seed] Environnement de production : comptes de démonstration NON créés.")
+            _alerter_comptes_demo(db)
+            print("\nSeed terminé avec succès!")
+            return
 
         # Users
         for entry in USERS:

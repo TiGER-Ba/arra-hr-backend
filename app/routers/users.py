@@ -31,7 +31,8 @@ from app.database import get_db
 from app.models.departement import Departement
 from app.models.employee import Employe
 from app.models.referentiel import (
-    CATEGORIE_NATIONALITE, NATIONALITE_DEFAUT, VALEURS_INITIALES, ValeurReferentiel,
+    CATEGORIE_NATIONALITE, CATEGORIE_POSTE, NATIONALITE_DEFAUT, VALEURS_INITIALES,
+    ValeurReferentiel,
 )
 from app.models.rh import RH
 from app.models.user import Utilisateur
@@ -299,7 +300,8 @@ class UserCreate(BaseModel):
     presta_rc: Optional[str] = None
     presta_siege: Optional[str] = None
     presta_gerant: Optional[str] = None
-    numero_retraite: Optional[str] = None        # facultatif
+    numero_retraite: Optional[str] = None
+    rib: Optional[str] = None        # facultatif
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -335,6 +337,7 @@ class UserUpdate(BaseModel):
     presta_siege: Optional[str] = None
     presta_gerant: Optional[str] = None
     numero_retraite: Optional[str] = None
+    rib: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -369,6 +372,7 @@ class FicheSalarieCreate(BaseModel):
     presta_siege: Optional[str] = None
     presta_gerant: Optional[str] = None
     numero_retraite: Optional[str] = None
+    rib: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
     adresse: Optional[str] = None
@@ -526,6 +530,7 @@ def _user_to_dict(u: Utilisateur) -> dict:
                 if getattr(e, "date_premiere_experience", None) else None
             ),
             "numero_retraite": getattr(e, "numero_retraite", None),
+            "rib": getattr(e, "rib", None),
             "cin": e.cin, "cnss": e.cnss, "adresse": e.adresse, "telephone": e.telephone,
         })
     d["est_salarie"] = u.employe is not None
@@ -745,6 +750,43 @@ def creer_nationalite(
     return {"nom": nom}
 
 
+@router.get("/postes")
+def liste_postes(
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Postes proposés à la saisie, référentiel et fiches existantes réunis."""
+    noms = set(_valeurs_referentiel(db, CATEGORIE_POSTE))
+    noms.update(
+        p for (p,) in db.query(Employe.poste).distinct().all() if (p or "").strip()
+    )
+    return sorted(noms, key=str.casefold)
+
+
+@router.post("/postes", status_code=status.HTTP_201_CREATED)
+def creer_poste(
+    payload: DepartementCreate,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    nom = (payload.nom or "").strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="Le poste est requis")
+    if len(nom) > 100:
+        raise HTTPException(status_code=400, detail="Nom trop long (100 caractères maximum)")
+    deja = db.query(ValeurReferentiel).filter(
+        ValeurReferentiel.categorie == CATEGORIE_POSTE,
+        func.lower(ValeurReferentiel.valeur) == nom.lower(),
+    ).first()
+    if deja:
+        raise HTTPException(status_code=400, detail="Ce poste existe déjà")
+
+    db.add(ValeurReferentiel(categorie=CATEGORIE_POSTE, valeur=nom))
+    log_action(db, current_user, "poste.create", cible_type="referentiel", cible_libelle=nom)
+    db.commit()
+    return {"nom": nom}
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def creer_utilisateur(
     payload: UserCreate,
@@ -822,6 +864,7 @@ def creer_utilisateur(
             nationalite=payload.nationalite or NATIONALITE_DEFAUT,
             date_premiere_experience=payload.date_premiere_experience,
             numero_retraite=(payload.numero_retraite or "").strip() or None,
+            rib=(payload.rib or "").strip() or None,
             cin=payload.cin, adresse=payload.adresse, telephone=payload.telephone,
         )
         db.add(emp)
@@ -829,6 +872,7 @@ def creer_utilisateur(
         initialiser_soldes_par_defaut(db, emp.id)
         assurer_departement(db, payload.departement)
         assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
+        assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
     if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
@@ -912,7 +956,7 @@ def modifier_utilisateur(
                      "date_naissance", "lieu_naissance", "sexe", "nationalite",
                      "presta_societe", "presta_forme", "presta_capital",
                      "presta_rc", "presta_siege", "presta_gerant",
-                     "date_premiere_experience", "numero_retraite",
+                     "date_premiere_experience", "numero_retraite", "rib",
                      "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)
             if val is not None:
@@ -944,6 +988,7 @@ def modifier_utilisateur(
 
         assurer_departement(db, payload.departement)
         assurer_valeur(db, CATEGORIE_NATIONALITE, payload.nationalite)
+        assurer_valeur(db, CATEGORIE_POSTE, payload.poste)
 
     log_action(
         db, current_user, "user.update",
@@ -1058,6 +1103,7 @@ def ajouter_fiche_salarie(
         nationalite=payload.nationalite or NATIONALITE_DEFAUT,
         date_premiere_experience=payload.date_premiere_experience,
         numero_retraite=(payload.numero_retraite or "").strip() or None,
+        rib=(payload.rib or "").strip() or None,
         cin=payload.cin, adresse=payload.adresse, telephone=payload.telephone,
     )
     db.add(emp)
@@ -1065,6 +1111,7 @@ def ajouter_fiche_salarie(
     initialiser_soldes_par_defaut(db, emp.id)
     assurer_departement(db, payload.departement)
     assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
+    assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
     log_action(
         db, current_user, "user.add_employe",
         cible_type="utilisateur", cible_id=user.id,

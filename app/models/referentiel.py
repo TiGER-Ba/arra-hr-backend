@@ -8,7 +8,8 @@ from app.database import Base
 # Catégories gérées. Une liste de choix alimentée par l'usage, pas une
 # nomenclature figée : le RH peut y ajouter une valeur depuis le formulaire.
 CATEGORIE_NATIONALITE = "nationalite"
-CATEGORIES = (CATEGORIE_NATIONALITE,)
+CATEGORIE_POSTE = "poste"
+CATEGORIES = (CATEGORIE_NATIONALITE, CATEGORIE_POSTE)
 
 # Valeurs proposées d'office à la première ouverture. « Marocaine » est la
 # valeur par défaut du formulaire ; les autres évitent de repartir d'une liste
@@ -17,6 +18,10 @@ VALEURS_INITIALES: dict[str, tuple[str, ...]] = {
     CATEGORIE_NATIONALITE: (
         "Marocaine", "Française", "Algérienne", "Tunisienne",
         "Sénégalaise", "Ivoirienne", "Espagnole", "Belge", "Canadienne",
+    ),
+    CATEGORIE_POSTE: (
+        "Ingénieur Logiciel", "Consultant / Engineer", "Design Release Engineer",
+        "Chef de Projet", "Analyste Financier", "Technicien", "Stagiaire",
     ),
 }
 

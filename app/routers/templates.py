@@ -139,7 +139,9 @@ def modifier_modele(
     db: Session = Depends(get_db),
 ):
     """Enregistre le modèle et le protège de la resynchronisation au démarrage."""
-    from jinja2 import Environment, TemplateSyntaxError
+    from jinja2 import TemplateSyntaxError
+
+    from app.services.rendu import environnement_modele
 
     t = db.query(TemplateModel).filter(TemplateModel.type == type_modele).first()
     if not t:
@@ -149,7 +151,7 @@ def modifier_modele(
 
     # Un modèle au Jinja invalide ferait échouer toutes les générations à venir
     try:
-        Environment().parse(payload.contenu_html)
+        environnement_modele().parse(payload.contenu_html)
     except TemplateSyntaxError as e:
         raise HTTPException(
             status_code=400,
@@ -198,7 +200,7 @@ def apercu_modele(
     db: Session = Depends(get_db),
 ):
     """Rendu du modèle avec un jeu de données d'exemple, sans rien enregistrer."""
-    from jinja2 import Environment
+    from app.services.rendu import rendre_modele
 
     exemple = {v["nom"]: f"[{v['nom']}]" for v in _variables(type_modele)}
     exemple.update({
@@ -223,7 +225,7 @@ def apercu_modele(
     })
 
     try:
-        html = Environment().from_string(payload.contenu_html).render(**exemple)
+        html = rendre_modele(payload.contenu_html, **exemple)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Erreur de rendu : {e}")
     return {"html": html}
