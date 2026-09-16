@@ -166,6 +166,87 @@ def modifier_modele(
     return {"message": "Modèle enregistré", "personnalise": True}
 
 
+class CorpsUpdate(BaseModel):
+    corps: str
+
+
+@router.get("/{type_modele}/visuel")
+def modele_visuel(
+    type_modele: str,
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Modèle préparé pour l'édition visuelle : corps éditable, style, blocs.
+
+    Le style et la logique Jinja ne sont **pas** envoyés comme éditables : le
+    corps ne contient que la prose et des jetons opaques à la place des blocs.
+    """
+    from app.services.modele_visuel import decouper
+
+    t = db.query(TemplateModel).filter(TemplateModel.type == type_modele).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+
+    decoupe = decouper(t.contenu_html)
+    return {
+        "type": t.type,
+        "nom": t.nom,
+        "corps": decoupe["corps"],
+        "style": decoupe["style"],
+        "blocs": [
+            {"index": i, "etiquette": b["etiquette"]}
+            for i, b in enumerate(decoupe["blocs"])
+        ],
+        "personnalise": bool(getattr(t, "personnalise", False)),
+        "variables": _variables(t.type),
+    }
+
+
+@router.put("/{type_modele}/visuel")
+def enregistrer_visuel(
+    type_modele: str,
+    payload: CorpsUpdate,
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Enregistre le corps édité visuellement, en réinjectant style et blocs.
+
+    ⚠️ Le client n'envoie que le CORPS. Le prologue, l'épilogue et la source des
+    blocs sont relus du modèle enregistré : un éditeur de texte enrichi ne peut
+    donc ni abîmer le CSS, ni altérer une condition Jinja.
+    """
+    from jinja2 import TemplateSyntaxError
+
+    from app.services.modele_visuel import recomposer
+    from app.services.rendu import environnement_modele
+
+    t = db.query(TemplateModel).filter(TemplateModel.type == type_modele).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+    if not (payload.corps or "").strip():
+        raise HTTPException(status_code=400, detail="Le document ne peut pas être vide")
+
+    complet = recomposer(t.contenu_html, payload.corps)
+
+    # Filet de sécurité : malgré la protection des blocs, on ne remplace jamais
+    # un modèle par quelque chose que Jinja refuserait ensuite de rendre.
+    try:
+        environnement_modele().parse(complet)
+    except TemplateSyntaxError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La mise en forme a produit un modèle invalide (ligne {e.lineno} : "
+                   f"{e.message}). Vos modifications n'ont pas été enregistrées.",
+        )
+
+    t.contenu_html = complet
+    t.personnalise = True
+    log_action(db, current_user, "template.update_visuel", cible_type="template",
+               cible_id=t.id, cible_libelle=t.nom)
+    db.commit()
+    return {"message": "Document enregistré", "personnalise": True}
+
+
 @router.post("/{type_modele}/reinitialiser")
 def reinitialiser_modele(
     type_modele: str,
