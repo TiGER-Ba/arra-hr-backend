@@ -67,10 +67,8 @@ INVITE_TTL_DAYS = 7
 CHAMPS_FICHE_COMMUNS = (
     ("poste", "Poste"),
     ("departement", "Département"),
-    ("date_embauche", "Date d'embauche"),
     ("type_contrat", "Type de contrat"),
     ("entite", "Entité de rattachement"),
-    ("date_naissance", "Date de naissance"),
     ("sexe", "Sexe"),
     ("nationalite", "Nationalité"),
     ("cin", "CIN"),
@@ -81,13 +79,25 @@ CHAMPS_FICHE_COMMUNS = (
 # Un salarié touche un salaire mensuel et relève du régime social (situation
 # familiale pour les charges de famille). Un externe est facturé au TJM et n'en
 # relève pas : lui réclamer ces informations n'aurait aucun sens.
+#
+# La DATE porte le même champ mais pas le même mot : un salarié est *embauché*,
+# un externe est *intégré* à une mission. Et sa date de naissance n'est pas
+# exigée — il ne relève pas du régime social qui la rend indispensable.
 CHAMPS_FICHE_INTERNE = CHAMPS_FICHE_COMMUNS + (
+    ("date_embauche", "Date d'embauche"),
+    ("date_naissance", "Date de naissance"),
     ("salaire_base", "Salaire"),
     ("situation_familiale", "Situation familiale"),
 )
 CHAMPS_FICHE_EXTERNE = CHAMPS_FICHE_COMMUNS + (
+    ("date_embauche", "Date d'intégration"),
     ("tjm", "TJM"),
 )
+
+
+def libelle_date_debut(type_contrat: str | None) -> str:
+    """« Date d'intégration » pour un externe, « Date d'embauche » sinon."""
+    return "Date d'intégration" if est_externe(type_contrat) else "Date d'embauche"
 
 
 def champs_requis(type_contrat: str | None):

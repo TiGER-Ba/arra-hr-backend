@@ -43,7 +43,7 @@
     <div>Nom : <strong>{{ nom }}</strong></div>
     <div>Prénom : <strong>{{ prenom }}</strong></div>
     <div>CIN : {{ cin }}</div>
-    <div>Date de naissance : {{ date_naissance }}{% if lieu_naissance %}, à {{ lieu_naissance }}{% endif %}</div>
+    {% if date_naissance %}<div>Date de naissance : {{ date_naissance }}{% if lieu_naissance %}, à {{ lieu_naissance }}{% endif %}</div>{% endif %}
     <div>Nationalité : {{ nationalite }}</div>
     <div>Profession : {{ poste }}</div>
     <div>Adresse du domicile : {{ adresse }}</div>

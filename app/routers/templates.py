@@ -31,7 +31,7 @@ VARIABLES_COMMUNES = [
     ("matricule", "Matricule"),
     ("poste", "Poste"),
     ("departement", "Département"),
-    ("date_embauche", "Date d'embauche"),
+    ("date_embauche", "Date d'embauche / d'intégration"),
     ("cin", "CIN"),
     ("adresse", "Adresse personnelle"),
     ("telephone", "Téléphone"),

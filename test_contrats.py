@@ -183,6 +183,18 @@ def main():
     verifier("au capital social de ," not in html_presta, "aucun capital vide")
     verifier("Représentée par son Gérant ," not in html_presta, "aucun gérant vide")
 
+    # Un externe sans date de naissance : son contrat se produit quand même et
+    # n'imprime pas « Date de naissance : » suivi de rien.
+    ae_sans_naissance = creer("juliett", "Freelance", salaire_base=0, tjm=700,
+                              date_naissance=None)
+    pdf, _ = generer_pdf_contrat(db, ae_sans_naissance)
+    db.commit()
+    verifier(pdf[:4] == b"%PDF", "contrat auto-entrepreneur sans date de naissance")
+    html_ae = rendu_de(ae_sans_naissance, "contrat_auto_entrepreneur")
+    verifier("Date de naissance :" not in html_ae,
+             "la ligne « Date de naissance » est omise, pas vide")
+    verifier("Nom :" in html_ae, "le reste de l'identité reste imprimé")
+
     cdi_sans_lieu = creer("india", "CDI")
     pdf, _ = generer_pdf_contrat(db, cdi_sans_lieu)
     db.commit()
@@ -193,8 +205,8 @@ def main():
              "la date de naissance reste affichée seule")
 
     print("\n— 7. Aucun numéro n'est consommé par un refus —")
-    verifier(db.query(Contrat).count() == 7,
-             "7 contrats en registre, les refus n'en ont créé aucun",
+    verifier(db.query(Contrat).count() == 8,
+             "8 contrats en registre, les refus n'en ont créé aucun",
              str(db.query(Contrat).count()))
 
     print("\n— 8. Le contenu reprend bien les données du salarié —")

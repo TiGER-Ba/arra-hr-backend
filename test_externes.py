@@ -95,6 +95,19 @@ def main():
     verifier("situation_familiale" not in requis_ext, "externe : pas de situation familiale")
     verifier("poste" in requis_int and "poste" in requis_ext, "le poste reste commun")
 
+    print("\n— 2bis. La date porte un autre mot, la naissance n'est pas exigée —")
+    from app.routers.users import libelle_date_debut
+    verifier(libelle_date_debut("CDI") == "Date d'embauche", "salarié : « Date d'embauche »")
+    verifier(libelle_date_debut("Freelance") == "Date d'intégration",
+             "externe : « Date d'intégration »", libelle_date_debut("Freelance"))
+    verifier(libelle_date_debut("Prestataire") == "Date d'intégration", "prestataire aussi")
+    verifier(("date_embauche", "Date d'embauche") in champs_requis("CDI"),
+             "le libellé salarié figure dans les champs exigés")
+    verifier(("date_embauche", "Date d'intégration") in champs_requis("Freelance"),
+             "le libellé externe figure dans les champs exigés")
+    verifier("date_naissance" in requis_int, "salarié : date de naissance exigée")
+    verifier("date_naissance" not in requis_ext, "externe : date de naissance facultative")
+
     print("\n— 3. Un externe n'a ni salaire, ni situation familiale, ni CNSS —")
     champs = _champs_selon_nature(Payload(
         type_contrat="Freelance", tjm=2500,

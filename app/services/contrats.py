@@ -113,15 +113,19 @@ def _verifier_donnees(employe: Employe, type_modele: str) -> None:
     u = employe.utilisateur
     exige(u.nom if u else None, "Nom")
     exige(employe.poste, "Poste")
-    exige(employe.date_embauche, "Date d'embauche")
-    exige(employe.date_naissance, "Date de naissance")
     exige(employe.nationalite, "Nationalité")
     exige(employe.cin, "CIN")
     exige(employe.adresse, "Adresse personnelle")
 
     if type_modele in ("contrat_cdi", "contrat_cdd"):
+        exige(employe.date_embauche, "Date d'embauche")
+        # Le contrat de travail porte l'état civil complet du salarié
+        exige(employe.date_naissance, "Date de naissance")
         exige(employe.salaire_base, "Salaire")
     else:
+        # Un externe est intégré à une mission, pas embauché ; sa date de
+        # naissance n'est pas exigée — le contrat omet la ligne si elle manque.
+        exige(employe.date_embauche, "Date d'intégration")
         exige(employe.tjm, "TJM")
 
     if type_modele == "contrat_prestation":
@@ -164,7 +168,9 @@ def construire_donnees(db: Session, employe: Employe, numero: str) -> dict:
         "nom_complet": f"{prenom} {nom}".strip(),
         "poste": employe.poste or "",
         "adresse": employe.adresse or "",
-        "date_naissance": _fr(employe.date_naissance),
+        # Chaîne vide plutôt que des pointillés : le modèle teste sa présence
+        # et omet la ligne — un externe n'a pas à fournir sa date de naissance.
+        "date_naissance": _fr(employe.date_naissance) if employe.date_naissance else "",
         "lieu_naissance": employe.lieu_naissance or "",
         "nationalite": employe.nationalite or "",
         "cin": employe.cin or "",

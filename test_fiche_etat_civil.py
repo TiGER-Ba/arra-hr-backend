@@ -68,13 +68,20 @@ def main():
              "marié sans valeur transmise → refusé (ce que produisait le bug)")
 
     print("\n— 2. Champs exigés de la fiche —")
-    # L'état civil vaut pour les deux natures, salarié comme externe
+    # Sexe et nationalité valent pour les deux natures…
     for contrat in ("CDI", "Freelance"):
         requis = {champ for champ, _ in champs_requis(contrat)}
-        for champ in ("date_naissance", "sexe", "nationalite"):
+        for champ in ("sexe", "nationalite"):
             verifier(champ in requis, f"{champ} est obligatoire ({contrat})")
-        for champ in ("numero_retraite", "date_premiere_experience"):
+        for champ in ("numero_retraite", "date_premiere_experience", "rib"):
             verifier(champ not in requis, f"{champ} reste facultatif ({contrat})")
+
+    # … la date de naissance, non : un externe ne relève pas du régime social
+    # qui la rend indispensable.
+    verifier("date_naissance" in {c for c, _ in champs_requis("CDI")},
+             "date_naissance exigée pour un salarié")
+    verifier("date_naissance" not in {c for c, _ in champs_requis("Freelance")},
+             "date_naissance facultative pour un externe")
 
     print("\n— 3. Sexe —")
     verifier(_valider_enum("M", VALID_SEXES, "Sexe") == "M", "M accepté")

@@ -49,7 +49,7 @@
     <div class="identite">
       <div>{{ civilite }} : <strong>{{ nom_complet }}</strong></div>
       <div>Demeurant à : {{ adresse }}</div>
-      <div>Né(e) le : {{ date_naissance }}{% if lieu_naissance %}, à : {{ lieu_naissance }}{% endif %}</div>
+      {% if date_naissance %}<div>Né(e) le : {{ date_naissance }}{% if lieu_naissance %}, à : {{ lieu_naissance }}{% endif %}</div>{% endif %}
       <div>De nationalité : {{ nationalite }}</div>
       <div>Titulaire de la CIN : {{ cin }}</div>
     </div>
