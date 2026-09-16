@@ -1,0 +1,463 @@
+<!-- Contrat de travail à durée indéterminée — ARRA ENGINEERING Maroc.
+     CSS sans flexbox : WeasyPrint le rend mal. -->
+<style>
+  @page { size: A4; margin: 18mm 20mm 20mm 20mm; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 10.5pt; line-height: 1.45; color: #111; }
+  .entete { text-align: center; margin-bottom: 6mm; }
+  .entete img { max-height: 22mm; }
+  h1 { font-size: 14pt; text-align: center; text-transform: uppercase; letter-spacing: .5px; margin: 4mm 0 1mm; }
+  .sous-titre { text-align: center; font-size: 11pt; font-weight: bold; margin-bottom: 7mm; }
+  h2 { font-size: 11pt; margin: 5mm 0 1.5mm; page-break-after: avoid; }
+  h3 { font-size: 10.5pt; font-style: italic; margin: 3mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 2mm; text-align: justify; }
+  ul { margin: 0 0 2mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; text-align: justify; }
+  .parties { margin: 3mm 0; }
+  .partie { margin-bottom: 3mm; }
+  .cote { text-align: right; font-style: italic; }
+  .identite { margin-left: 4mm; }
+  .identite div { margin-bottom: 1mm; }
+  .signatures { margin-top: 10mm; page-break-inside: avoid; width: 100%; }
+  .signatures td { width: 50%; vertical-align: top; padding-top: 2mm; font-size: 10pt; }
+  .signatures .visuel { height: 30mm; }
+  .signatures img { max-height: 28mm; max-width: 55mm; }
+  .mention { font-style: italic; font-size: 9.5pt; }
+  .pied { margin-top: 8mm; font-size: 9pt; text-align: center; color: #444; }
+</style>
+
+{% if logo_url %}<div class="entete"><img src="{{ logo_url }}" alt="ARRA ENGINEERING"></div>{% endif %}
+
+<h1>Contrat de travail à durée indéterminée</h1>
+<div class="sous-titre">{{ poste }}</div>
+
+<p><strong>ENTRE LES SOUSSIGNÉS</strong></p>
+
+<div class="parties">
+  <div class="partie">
+    <p><strong>ARRA ENGINEERING</strong><br>
+    Société à responsabilité limitée, SARL (AU), au capital social de 100.000 dirhams
+    (cent mille dirhams), immatriculée au Registre de Commerce de Casablanca sous le
+    numéro 682335, située au Technopark, Bd Dammam, Angle RS 114 et CT 1029,
+    Route de Nouaceur, Bureau 325, Casablanca.<br>
+    Représentée par {{ signataire_nom }} en qualité de Directeur de l’entreprise.</p>
+    <p class="cote">D’une part</p>
+  </div>
+
+  <div class="partie">
+    <p><strong>ET</strong></p>
+    <div class="identite">
+      <div>{{ civilite }} : <strong>{{ nom_complet }}</strong></div>
+      <div>Demeurant à : {{ adresse }}</div>
+      <div>Né(e) le : {{ date_naissance }}, à : {{ lieu_naissance }}</div>
+      <div>De nationalité : {{ nationalite }}</div>
+      <div>Titulaire de la CIN : {{ cin }}</div>
+    </div>
+    <p>Dénommé(e) « le Salarié »</p>
+    <p class="cote">D’autre part</p>
+  </div>
+</div>
+
+<p><strong>IL A ÉTÉ CONVENU CE QUI SUIT :</strong></p>
+
+<h2>Article 1 : Déclarations</h2>
+<p>Le Salarié déclare formellement n’être lié à aucune autre société à la date d’effet du
+présent contrat, et être libre de tout engagement envers son précédent employeur. En
+particulier, le Salarié déclare n’être tenu par aucune clause de non-concurrence pouvant
+faire obstacle à la conclusion du présent contrat.</p>
+
+<h2>Article 2 : Nature du contrat</h2>
+<p>La Société engage le Salarié par contrat à durée indéterminée aux conditions définies au
+présent contrat.</p>
+<p>Le Salarié s’engage à respecter le règlement intérieur de l’entreprise et ses annexes au
+moment de leur entrée en vigueur et dans leurs évolutions éventuelles, ainsi que la charte
+d’utilisation des moyens informatiques.</p>
+
+<h2>Article 3 : Date d’effet et période d’essai</h2>
+<p>Le présent contrat de travail prend effet à compter du <strong>{{ date_effet }}</strong> et
+pour une durée indéterminée.</p>
+<p>Il est conclu avec le Salarié, sous réserve :</p>
+<ul>
+  <li>Des résultats favorables de la visite médicale d’embauche ;</li>
+  <li>De la production d’une copie des diplômes mentionnés dans son curriculum vitae ainsi
+      que, le cas échéant, des documents administratifs préalables nécessaires à l’embauche ;</li>
+  <li>De la production de la liste exhaustive des documents constituant le dossier
+      administratif demandé par l’entreprise.</li>
+</ul>
+<p>Le présent contrat ne deviendra définitif qu’à l’expiration d’une période d’essai de
+3 mois conformément aux dispositions légales pour, en l’occurrence, un salarié cadre et
+assimilé.</p>
+<p>Pendant la période d’essai, le contrat pourra être rompu par l’une ou l’autre des deux
+parties, dans les conditions fixées par la loi.</p>
+<p>Cet essai, conformément aux dispositions de l’article 14 du Code du travail, sera renouvelé
+une fois.</p>
+<p><em>Pour la durée de période de préavis :</em> conformément à l’article 43 de la loi 65-99,
+le Salarié, en l’occurrence cadre (ou assimilé), devra respecter suivant son ancienneté les
+règles suivantes :</p>
+<ul>
+  <li>Moins d’une année d’ancienneté : 1 mois de préavis ;</li>
+  <li>Entre 1 et 5 ans d’ancienneté : 2 mois de préavis ;</li>
+  <li>Au-delà de 5 ans : 3 mois de préavis.</li>
+</ul>
+
+<h2>Article 4 : Fonction</h2>
+<p>Le Salarié exercera pour le compte de la Société les fonctions de
+<strong>{{ poste }}</strong>, cadre ou assimilé.</p>
+<p>Toutefois, les fonctions confiées au Salarié sont par nature évolutives. Le Salarié accepte
+toute autre fonction que la Société pourrait lui confier, en fonction des nécessités
+d’administration et de gestion, sans que cela ne représente une modification du présent
+contrat de travail.</p>
+
+<h2>Article 5 : Durée du travail</h2>
+<p>Le Salarié est soumis à la durée légale de travail en vigueur, conformément aux
+dispositions du Code du travail.</p>
+<p>Cette durée pourra être adaptée en fonction des besoins d’organisation du service. Le
+Salarié accepte que l’organisation de son travail puisse être modifiée en fonction des
+exigences opérationnelles de l’entreprise et de ses clients, incluant des interventions les
+week-ends et jours fériés. Ces heures effectuées feront l’objet, selon les conditions fixées,
+d’une compensation sous forme de prime ou d’un jour de repos compensatoire.</p>
+<p>Le Salarié est tenu de respecter l’horaire de travail collectif affiché dans les locaux de la
+société.</p>
+
+<h2>Article 6 : Rémunération</h2>
+<h3>Partie « fixe »</h3>
+<p>Le Salarié percevra un salaire mensuel net de <strong>{{ salaire }}</strong>, incluant des
+indemnités diverses.</p>
+<p>La société garantit le net au Salarié et se réserve le droit d’y inclure toute indemnité dans
+la limite de la loi en vigueur.</p>
+<h3>Partie « variable »</h3>
+<p>Le Salarié est, par ailleurs, informé qu’il pourra bénéficier d’une rémunération variable,
+dont les modalités seront établies conformément aux procédures mises en place au sein de la
+société.</p>
+<p>En outre, la part variable susmentionnée, n’ayant pas un caractère obligatoire, ne saurait
+être attribuée au Salarié qu’à titre purement personnel et exceptionnel et sans qu’elle puisse
+constituer un précédent quelle qu’en soit la fréquence, la durée ou la périodicité. Ce que le
+Salarié accepte expressément.</p>
+
+<h2>Article 7 : Conditions d’exercice des fonctions</h2>
+<h3>Lieu d’emploi</h3>
+<p>À titre indicatif, le lieu d’emploi du Salarié est situé sur le site administratif de
+rattachement situé au siège de la société ARRA Engineering Maroc.</p>
+<h3>Lieu d’intervention</h3>
+<p>Compte tenu de la nature spécifique de ses activités professionnelles et des nécessités de
+la Société, le Salarié pourra être amené, en fonction des missions qui lui sont confiées, à
+effectuer, de manière habituelle ou non, des déplacements de courte ou de longue durée, au
+Maroc et à l’étranger, ce qu’il accepte d’ores et déjà, sans que ces déplacements ne modifient
+en rien son contrat de travail. Dans ce cadre, il sera amené à intervenir sur les sites des
+clients ou de la société.</p>
+<p>Le cas échéant, le lieu et la durée d’intervention seront définis par l’ordre de mission
+établi à l’occasion de chaque mission, sans que cela modifie son contrat de travail.</p>
+<p>À ce titre, suivant les missions, le Salarié pourra être amené à effectuer du télétravail à
+plein temps sous réserve d’un accord de l’entreprise.</p>
+<h3>Clause de mobilité géographique et de mutation</h3>
+<p>Par ailleurs, compte tenu des besoins de l’employeur, ce dernier pourra muter le Salarié,
+sur l’ensemble du territoire marocain, sans modification salariale, à :</p>
+<ul>
+  <li>Un établissement ou service de la société, ou toute entité ayant un lien capitalistique
+      avec la société, conformément à l’article 19 alinéa 2 du Code du travail (filiale,
+      holding, participation, etc.) ;</li>
+  <li>L’une de ses entreprises clientes, ou toute entité ayant un lien capitalistique avec
+      cette dernière.</li>
+</ul>
+<p>Il est convenu dès à présent que le Salarié accepte d’ores et déjà cette éventuelle
+modification de son lieu de travail et/ou d’employeur, qu’il ne saurait considérer comme une
+modification substantielle du présent contrat de travail.</p>
+<p>Il est bien entendu entre l’employeur et le Salarié que tout refus, de la part du Salarié, de
+rejoindre le nouveau lieu de travail ou la nouvelle entité sera constitutif d’une faute pouvant
+provoquer la rupture du présent contrat de travail pour faute grave du Salarié, conformément
+aux dispositions des articles 39 et 61 du Code du travail.</p>
+<h3>Frais professionnels</h3>
+<p>Le Salarié est indemnisé de ses frais professionnels dans les conditions en vigueur dans la
+société.</p>
+<p>Lorsque le Salarié engage des dépenses d’ordre professionnel préalablement acceptées par sa
+hiérarchie, il doit communiquer au pôle frais, dans les plus brefs délais et conformément à la
+procédure applicable au sein de la Société, les justificatifs de frais correspondants.</p>
+<p>Les frais exceptionnels envisagés, soit par leur nature, soit par leur montant, devront faire
+l’objet d’un accord préalable de l’employeur.</p>
+<p>La politique de frais de la Société pourra être amenée à évoluer sur décision de la
+direction sans que cela ne représente une modification du présent contrat de travail.</p>
+<h3>Réalisation des missions confiées</h3>
+<p>Le Salarié s’engage à suivre les conseils, recommandations et directives de ses responsables
+hiérarchiques.</p>
+<p>Dans le cadre des missions qui lui sont confiées, il représentera la société, son
+savoir-faire, son sérieux et son professionnalisme auprès des clients de la société. Aussi, le
+Salarié s’engage à se comporter de sorte à ne pas porter atteinte à la Société, tant par son
+comportement que par la qualité de la prestation fournie.</p>
+<p>Il s’engage à remplir son relevé d’activité conformément à la procédure applicable au sein
+de la société.</p>
+<p>Le Salarié s’engage à mettre à jour son dossier de compétences à chaque nouveau projet, et
+au minimum tous les 6 mois, ou sur simple demande de son responsable hiérarchique.</p>
+<h3>Exclusivité de service</h3>
+<p>Pendant la durée d’exécution du présent contrat, le Salarié :</p>
+<ul>
+  <li>Doit consacrer professionnellement toute son activité à la société, son employeur
+      exclusif, et apporter ses soins pour l’exécution des fonctions qui lui sont confiées en
+      vertu du présent contrat. Le Salarié s’interdit donc, sauf accord écrit préalable de la
+      Société, d’exercer une autre activité professionnelle, quelle qu’en soit la nature et
+      qu’elle soit rémunérée ou non, soit pour son propre compte, soit pour celui de tiers ;</li>
+  <li>S’interdit, sauf accord écrit préalable entre les parties, de s’intéresser, directement
+      ou indirectement, de quelque manière et à quelque titre que ce soit, à toute affaire
+      créée ou en voie de création susceptible de faire concurrence à la société, que ce soit à
+      titre gracieux ou à titre onéreux.</li>
+</ul>
+<p>Toute infraction aux dispositions ci-dessus sera considérée comme une faute grave entraînant
+le licenciement sans indemnité ni préavis, conformément aux dispositions légales en vigueur.</p>
+<h3>Confidentialité et discrétion</h3>
+<p>Le Salarié s’engage à observer la plus stricte confidentialité :</p>
+<ul>
+  <li>Sur les informations dont il a pris connaissance dans le cadre de ses fonctions et durant
+      ses missions ;</li>
+  <li>Sur les informations et documents qu’il détient ou qu’il a détenus dans le cadre de ses
+      fonctions et durant ses missions.</li>
+</ul>
+<p>En particulier, le Salarié s’engage à observer la plus stricte confidentialité sur :</p>
+<ul>
+  <li>L’administration, l’organisation, les activités, les études (administratives,
+      commerciales, industrielles ou financières), la clientèle et les résultats financiers de
+      la société, de ses clients et prospects ;</li>
+  <li>Les techniques, savoir-faire, méthodes, projets, études, secrets de fabrication,
+      logiciels et brevets, ainsi que les idées afférentes à ces domaines, développés ou mis en
+      œuvre au sein de la Société et chez ses clients et prospects.</li>
+</ul>
+<p>Le Salarié s’engage à respecter cette obligation pendant toute la durée du présent contrat,
+et pendant les trois années suivant la rupture de ce dernier, quelle qu’en soit la cause.</p>
+<p>Les documents, fichiers ou autres outils mis à la disposition du Salarié pour l’exercice de
+sa fonction restent la propriété de la Société et doivent être restitués en intégralité à la
+Société en fin de contrat.</p>
+<p>De même, le Salarié s’engage à ne pas faciliter l’accès de tiers non autorisés à l’intérieur
+de la société ou des sociétés clientes au sein desquelles il interviendrait dans le cadre d’une
+mission.</p>
+<p>L’inobservation de ces obligations serait assimilée à une faute grave, nonobstant les
+poursuites pénales éventuelles.</p>
+<h3>Utilisation des moyens informatiques</h3>
+<p>Le Salarié est pleinement responsable de l’utilisation des moyens informatiques mis à sa
+disposition par la société. Il s’engage à respecter strictement les recommandations de la
+société ; toute installation de logiciel ou utilisation du matériel pour un autre usage que
+celui prévu par la société, sans autorisation écrite préalable, engage sa responsabilité.</p>
+<p>Le Salarié s’engage également à ne pas utiliser des copies illicites de logiciels ni à les
+employer selon des modalités autres que celles prévues par le contrat avec l’auteur ou le
+distributeur.</p>
+<p>Toute violation de ces règles constituera une faute grave pouvant entraîner le licenciement
+immédiat du Salarié, sans indemnité ni préavis, conformément aux dispositions légales en
+vigueur, et pourra entraîner des poursuites judiciaires.</p>
+<h3>Objectifs annuels et performance</h3>
+<p>Le Salarié est tenu de respecter les objectifs annuels définis par la société dans le cadre
+de son poste et de ses responsabilités. Ces objectifs s’articulent principalement autour des
+points suivants :</p>
+<ul>
+  <li><strong>Relation client et posture</strong> : maintenir une relation positive avec le
+      client tout en soutenant la société dans le développement de nouveaux business et en
+      proposant des profils ;</li>
+  <li><strong>Qualité</strong> : garantir un taux de plus de 97 % de livrables conformes dès la
+      première soumission ;</li>
+  <li><strong>Délais</strong> : respecter les délais de livraison avec un taux de plus de 97 %
+      de livrables remis dans les temps.</li>
+</ul>
+<p>Le Salarié est responsable de l’atteinte de ces objectifs et s’engage à fournir les efforts
+nécessaires pour les réaliser. La performance globale du Salarié pourra être prise en compte
+lors des évaluations annuelles, ainsi que dans le cadre de son évolution de carrière ou des
+révisions salariales.</p>
+<p>Tout manquement significatif à l’atteinte des objectifs, sans justification valable, ou toute
+remontée négative du client concernant sa performance, son engagement ou son comportement
+pourra entraîner des mesures disciplinaires pouvant aller jusqu’à une faute grave et le
+licenciement immédiat du Salarié.</p>
+<h3>Moyens de communication et traçabilité</h3>
+<p>Le Salarié doit utiliser les moyens de communication de la société exclusivement pour des
+usages professionnels et en conformité avec les directives internes. Cela inclut les emails,
+les plateformes de la société, les outils de gestion de projets et tout autre moyen de
+communication officiel de la société. Toute décision ou échange lié aux projets ou aux clients
+doit être consigné par écrit en email afin d’assurer la traçabilité.</p>
+<p>L’utilisation non autorisée des outils de communication ou l’absence de traçabilité pourra
+entraîner des sanctions disciplinaires, conformément aux dispositions légales.</p>
+
+<h2>Article 8 : Assurance maladie et prévoyance</h2>
+<p>Le Salarié bénéficiera des régimes obligatoires de prévoyance sociale, gérés par la CNSS.</p>
+<p>Le Salarié accepte expressément que soient prélevées sur sa rémunération les cotisations
+afférentes à ce régime. Par ailleurs, si dans le cadre d’une loi une couverture sociale
+quelconque ou autre devenait obligatoire, la société se réserverait le droit d’annuler, pour
+raison de double emploi, la couverture identique souscrite par ses soins au profit du personnel
+auprès d’organismes externes privés ou autres.</p>
+<p>Lors de la cessation du contrat de travail pour quelque raison que ce soit, le Salarié perd
+automatiquement le droit aux bénéfices ci-dessus. Il devra restituer les biens, documents et
+autres effets de l’employeur mis à sa disposition pour les besoins de ses fonctions, et ce sans
+délai.</p>
+
+<h2>Article 9 : Congés payés</h2>
+<p>Le Salarié bénéficiera des congés payés annuels dans les conditions définies par les
+dispositions législatives et réglementaires en vigueur à la signature du présent contrat de
+travail.</p>
+<p>Il posera ses congés payés au moyen soit de l’outil de gestion des temps et des absences en
+vigueur, soit par un simple email à sa hiérarchie, sur des périodes ne portant pas atteinte au
+bon fonctionnement de l’activité de la société. En tout état de cause, les dates de congés
+devront prendre en compte les nécessités du service, la situation de famille du Salarié ainsi
+que son ancienneté au sein de la Société. Ces congés devront ainsi être validés pour être
+pris.</p>
+
+<h2>Article 10 : Absences, maladie et retard</h2>
+<p>Toute absence pour maladie ou accident, quelle qu’en soit la durée, doit être signalée
+immédiatement par le Salarié et justifiée dans les quarante-huit (48) heures, à moins qu’elle
+n’ait fait l’objet d’une autorisation écrite préalable de la Direction.</p>
+<p>Si l’absence se prolonge plus de deux (2) jours, le Salarié doit faire connaître à
+l’employeur la durée probable de son absence et lui fournir un certificat médical justifiant
+son absence.</p>
+<p>L’employeur peut faire procéder à une contre-visite du Salarié par un médecin de son choix
+et à ses frais pendant la durée de l’absence fixée par le certificat médical produit par le
+Salarié.</p>
+<p>En cas de non-respect de l’une des deux obligations ci-dessus, le Salarié est considéré comme
+étant en absence non justifiée. Le Salarié a l’obligation de reprendre son service à la date
+indiquée par le certificat médical ou, en cas de contrôle, à celle fixée par le médecin
+contrôleur. À défaut, le Salarié est considéré comme étant en absence non justifiée.</p>
+<p>En cas de prolongation de la maladie, le Salarié doit informer l’employeur et justifier de
+son absence dans les mêmes conditions que celles prévues pour le congé initial.</p>
+
+<h2>Article 11 : Non-concurrence</h2>
+<p>Pour les besoins du présent article, on entend par :</p>
+<ul>
+  <li><strong>Société concurrente</strong> : toute entreprise exerçant ou susceptible d’exercer,
+      en tout ou en partie, la même activité ou une activité similaire à celle de la Société
+      et/ou offrant des produits ou services identiques ou similaires à ceux de la société ;</li>
+  <li><strong>Client</strong> : toute entreprise ayant bénéficié des produits ou services de la
+      société.</li>
+</ul>
+<p>Compte tenu de la nature de ses fonctions et des informations confidentielles dont il
+dispose, et afin de préserver les légitimes intérêts de la Société, le Salarié s’interdit
+expressément d’intervenir directement ou indirectement, et ce à quelque titre que ce soit, en
+qualité de salarié et/ou d’indépendant ou de mandataire social, auprès d’une société
+concurrente ou auprès d’un client. Le Salarié s’interdit également de démarcher les clients
+pour son compte ou pour le compte de toute autre société concurrente.</p>
+<p>Concernant le périmètre géographique de cette clause de non-concurrence, il est limité à un
+rayon de 150 kilomètres de la ville de Rabat.</p>
+<p>Elle s’applique pendant les 12 mois qui suivent le départ effectif du Salarié de la société,
+et ce quel que soit le motif de la rupture du contrat de travail. La durée de l’obligation de
+non-concurrence sera prolongée de la durée pendant laquelle le Salarié aura été en infraction
+avec ladite obligation.</p>
+<p>Toute inexécution de cette obligation de non-concurrence donnera lieu à réparation intégrale
+du préjudice subi par la société, estimé à 12 mois du dernier salaire fixe brut perçu par le
+Salarié durant son dernier mois complet d’activité en qualité de salarié de la Société.</p>
+<p>La Société se réserve la faculté, quel que soit le motif de rupture du contrat de travail et
+quel qu’en soit l’auteur, de renoncer à l’application de la présente clause. La renonciation
+sera notifiée dans les 15 jours suivant la date de première présentation du courrier de
+dénonciation du contrat de travail, ou suivant la date de fin de contrat par l’une ou l’autre
+des parties. L’indemnité contractuelle au titre de la clause pénale prévue ci-dessus
+(correspondant à 12 mois du dernier salaire brut) ne sera alors pas due.</p>
+
+<h2>Article 12 : Clause de dédit-formation</h2>
+<p>Le Salarié, du fait de la nature de ses fonctions, bénéficiera d’une ou plusieurs formations
+complémentaires à son cursus scolaire, indispensables à sa mise à niveau pour accomplir ses
+missions. Ces formations seront dispensées par l’un de nos organismes de formation partenaires
+ou par un formateur interne.</p>
+<p>Ces formations sont des formations de pointe portant sur des technologies particulières.
+Elles représentent un investissement important pour ARRA ENGINEERING et ont un impact direct
+sur l’employabilité du salarié.</p>
+<p>À cet égard, le Salarié s’engage à rester au service de la Société pendant une durée minimale
+de douze mois à compter de la fin de la formation.</p>
+<p>Dans l’hypothèse où le Salarié serait amené à quitter la société avant la fin de la période
+mentionnée ci-dessus, pour cause de démission ou de licenciement pour faute grave, celui-ci
+s’engage à rembourser le coût de la formation financée par la Société, sauf accord exprès de
+celle-ci. Le montant à rembourser sera proportionnel au nombre de mois restant à courir
+jusqu’à l’expiration du délai de douze mois susvisé.</p>
+<p>En cas de rupture de contrat avant la fin du programme précité, le montant à rembourser sera
+équivalent à la totalité des frais engagés par l’entreprise à la date du départ du salarié. Ce
+montant est exigible à la date de départ effectif du Salarié, et ce pour quelque motif que ce
+soit.</p>
+
+<h2>Article 13 : Clause de loyauté</h2>
+<p>Dans le cadre de son activité salariée au sein de la Société, le Salarié s’engage à toujours
+agir de manière loyale et de bonne foi dans l’exécution de son contrat de travail.</p>
+<p>Il s’engage expressément à ne pas porter préjudice à la Société ARRA ENGINEERING, par son
+comportement ou de toute autre manière.</p>
+<p>Au cours des missions qui lui sont confiées auprès des différents clients de la Société, le
+Salarié s’engage à ne pas solliciter et/ou à ne pas répondre à un client en vue de négocier son
+éventuelle embauche, conscient que cela constituerait un manquement à son obligation de
+loyauté.</p>
+<p>Dans le cadre de l’exécution de son contrat de travail, ou au terme de celui-ci, le Salarié
+s’interdit d’utiliser, à titre personnel ou pour le compte d’une société, concurrente ou non,
+les informations obtenues ou les contacts établis dans le cadre de ses fonctions.</p>
+<p>Dans le cadre de l’exécution de son contrat de travail, ou au terme de celui-ci, le Salarié
+s’interdit également d’agir de sorte à constituer envers la Société ARRA ENGINEERING une
+concurrence déloyale.</p>
+<p>De ce fait, au terme de son contrat de travail avec la Société, le Salarié ne dénigrera pas
+les prestations réalisées ou la politique de son ancien employeur, n’effectuera pas de confusion
+volontairement entretenue entre l’ancienne et la nouvelle entreprise, ne détournera pas la
+clientèle de la Société ARRA ENGINEERING, ne débauchera pas les salariés de la Société ARRA
+ENGINEERING, cette liste étant non exhaustive.</p>
+
+<h2>Article 14 : Propriété des créations intellectuelles</h2>
+<p>Les droits de propriété sur les inventions de mission créées par le Salarié dans l’exercice
+de ses fonctions ou d’après les instructions de la Société sont régis par les dispositions de la
+loi 17-95 du 15 février 2000 sur la propriété industrielle, telle que modifiée et complétée par
+la loi 31-05 du 14 février 2006 et notamment son article 18, ainsi que par l’article 35 de la
+loi sur les droits d’auteur et droits voisins 02-2000 du 15 février 2000.</p>
+<p>Ainsi, les droits attachés à ces inventions de mission sont de la propriété exclusive de la
+société, qui est seule habilitée à les exercer.</p>
+
+<h2>Article 15 : Hygiène et sécurité</h2>
+<p>Le Salarié s’engage à respecter les directives de son employeur vis-à-vis des normes
+d’hygiène et de sécurité afin de ne pas mettre en danger sa sécurité ni celle des autres
+salariés travaillant avec lui.</p>
+<p>Il s’engage à lire et à respecter le règlement intérieur en vigueur dans la Société ainsi que
+toutes notes de service notifiées par la Direction.</p>
+<p>Il s’engage à respecter les consignes de sécurité prévues dans le cadre des plans de
+prévention établis dans le cadre des missions qui pourront lui être confiées.</p>
+<p>Le non-respect de ces obligations sera considéré comme étant une faute grave justifiant le
+licenciement sans indemnités ni préavis, conformément aux dispositions en vigueur.</p>
+
+<h2>Article 16 : Situation personnelle</h2>
+<p>Le Salarié s’oblige à informer la société sans délai et par écrit de tout changement
+d’adresse ou autre (situation de famille, permis de conduire, etc.) qui interviendrait dans les
+situations qu’il a signalées lors de son engagement. À défaut, toute notification aux situations
+initialement communiquées par le Salarié figurant à son dossier est réputée régulière et lui est
+opposable.</p>
+
+<h2>Article 17 : Usage et restitution des biens de l’entreprise</h2>
+<p>La documentation et le matériel que la société serait amenée à lui confier pour l’exécution
+de ses fonctions demeurent la propriété de la société.</p>
+<p>Le Salarié s’engage à user normalement de la documentation et du matériel informatique qui
+lui seront confiés et à les restituer au terme du contrat de travail ou sur simple demande.</p>
+
+<h2>Article 18 : Protection des données personnelles</h2>
+<p>Le Salarié consent à ce que la société collecte et traite les données personnelles le
+concernant et en rapport avec les relations de travail entre le Salarié, la société et le
+service de gestion du personnel, de la façon qui sera la plus appropriée (que ce soit sous forme
+écrite, électronique ou autre).</p>
+<p>La Société s’engage à ce que les droits du Salarié soient préservés, conformément aux
+dispositions légales marocaines applicables en matière de protection des données personnelles.</p>
+<p>Le Salarié est informé qu’il dispose d’un droit de regard sur les informations le concernant
+et détenues par la Société.</p>
+
+<h2>Article 19 : Modalités de rupture du contrat de travail</h2>
+<p>Le présent contrat pourra être rompu à tout moment par la Société en cas de faute grave, et
+ce sans indemnité ni préavis, conformément aux dispositions de l’article 39 du Code du travail.
+Outre les cas visés audit code, seront considérés comme fautes graves les manquements aux
+obligations résultant du présent contrat ainsi que l’inobservation des notes de service et
+autres instructions de la Société.</p>
+<p>Le présent contrat pourra également être résilié pour fautes non graves du Salarié si les
+quatre (4) sanctions disciplinaires prévues à l’article 37 du Code du travail ont été appliquées
+et épuisées dans l’année.</p>
+<p>Le contrat peut enfin prendre fin par la volonté commune des parties à tout moment, sous
+réserve de respecter les délais de préavis prévus par la loi, sauf en cas de faute grave ou
+lourde et sous décision de l’employeur.</p>
+<p>Le collaborateur s’engage à prendre connaissance de ces documents et à mettre en œuvre ces
+consignes dans le cadre de l’exécution de son contrat de travail.</p>
+
+<p>En vous souhaitant bon accueil dans notre Société et réussite dans vos fonctions, nous vous
+demandons de bien vouloir parapher chaque page du contrat et d’apposer votre signature sur la
+présente, en l’accompagnant de la mention manuscrite « Lu et approuvé », par laquelle vous vous
+engagez à respecter loyalement les droits et obligations liés à vos engagements.</p>
+
+<p>Fait à {{ lieu_signature }}, en double exemplaire, le {{ date_signature }}.</p>
+
+<table class="signatures">
+  <tr>
+    <td><strong>{{ nom_complet }}</strong><br><span class="mention">(Lu et approuvé)</span></td>
+    <td><strong>{{ signataire_nom }}</strong><br>Directeur ARRA ENGINEERING Maroc</td>
+  </tr>
+  <tr>
+    <td class="visuel"></td>
+    <td class="visuel">
+      {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+      {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+    </td>
+  </tr>
+</table>
+
+<div class="pied">ARRA ENGINEERING SARL (AU) — RC Casablanca n° 682335</div>

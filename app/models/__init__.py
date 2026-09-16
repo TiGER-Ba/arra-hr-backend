@@ -15,6 +15,7 @@ from app.models.pointage import Pointage, FeuilleTemps, JourFerie
 from app.models.crm import Societe, Projet, Affectation
 from app.models.departement import Departement
 from app.models.referentiel import ValeurReferentiel
+from app.models.contrat import Contrat
 
 __all__ = [
     "Utilisateur",
@@ -39,4 +40,5 @@ __all__ = [
     "Affectation",
     "Departement",
     "ValeurReferentiel",
+    "Contrat",
 ]

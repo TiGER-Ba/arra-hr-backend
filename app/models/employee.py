@@ -20,6 +20,18 @@ class Employe(Base):
     # salarié. À ne pas confondre avec Affectation.tjm, négocié par projet :
     # celui-ci est le tarif par défaut de la personne.
     tjm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # ── Société portant le prestataire (type_contrat « Prestataire ») ────────
+    # Le contrat de prestation lie ARRA à une SOCIÉTÉ, la personne n'y figurant
+    # que comme ressource mise à disposition : ses mentions légales sont donc
+    # indispensables au document. Saisies sur la fiche plutôt que rattachées au
+    # CRM — une société de portage n'est ni un client ni un fournisseur suivi.
+    presta_societe: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    presta_forme: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    presta_capital: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    presta_rc: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    presta_siege: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    presta_gerant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     date_embauche: Mapped[date] = mapped_column(Date, nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default="actif")  # actif | inactif | suspendu
     # Entité employeur : « MA » (ARRA Maroc) ou « FR » (ARRA France).
@@ -34,6 +46,8 @@ class Employe(Base):
     # 0 est une valeur valide et se distingue de « non renseigné ».
     nombre_enfants: Mapped[int | None] = mapped_column(Integer, nullable=True)
     date_naissance: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Les contrats CDI/CDD/AE écrivent « Né le … à … » : le lieu est requis
+    lieu_naissance: Mapped[str | None] = mapped_column(String(120), nullable=True)
     sexe: Mapped[str | None] = mapped_column(String(1), nullable=True)  # M | F
     nationalite: Mapped[str | None] = mapped_column(String(60), nullable=True)
     # Début de la carrière, y compris hors ARRA : sert à calculer l'expérience

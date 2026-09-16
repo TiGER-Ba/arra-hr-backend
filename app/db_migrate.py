@@ -75,6 +75,15 @@ def _migrer_employes() -> None:
     _add_column(cols, "employes", "numero_retraite", "VARCHAR(50)")
     # Tarif journalier des externes (freelance, prestataire) — null pour un salarié.
     _add_column(cols, "employes", "tjm", "NUMERIC(10,2)")
+    # Lieu de naissance : les contrats écrivent « Né le … à … »
+    _add_column(cols, "employes", "lieu_naissance", "VARCHAR(120)")
+    # Société portant un prestataire — mentions légales reprises par son contrat
+    _add_column(cols, "employes", "presta_societe", "VARCHAR(150)")
+    _add_column(cols, "employes", "presta_forme", "VARCHAR(80)")
+    _add_column(cols, "employes", "presta_capital", "VARCHAR(60)")
+    _add_column(cols, "employes", "presta_rc", "VARCHAR(60)")
+    _add_column(cols, "employes", "presta_siege", "VARCHAR(255)")
+    _add_column(cols, "employes", "presta_gerant", "VARCHAR(150)")
 
 
 def _migrer_matricules() -> None:

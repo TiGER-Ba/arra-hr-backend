@@ -70,6 +70,7 @@ CHAMPS_FICHE_COMMUNS = (
     ("type_contrat", "Type de contrat"),
     ("entite", "Entité de rattachement"),
     ("date_naissance", "Date de naissance"),
+    ("lieu_naissance", "Lieu de naissance"),
     ("sexe", "Sexe"),
     ("nationalite", "Nationalité"),
     ("cin", "CIN"),
@@ -292,6 +293,13 @@ class UserCreate(BaseModel):
     sexe: Optional[str] = None                   # M | F
     nationalite: Optional[str] = None
     date_premiere_experience: Optional[date] = None
+    lieu_naissance: Optional[str] = None
+    presta_societe: Optional[str] = None
+    presta_forme: Optional[str] = None
+    presta_capital: Optional[str] = None
+    presta_rc: Optional[str] = None
+    presta_siege: Optional[str] = None
+    presta_gerant: Optional[str] = None
     numero_retraite: Optional[str] = None        # facultatif
     cin: Optional[str] = None
     cnss: Optional[str] = None
@@ -320,6 +328,13 @@ class UserUpdate(BaseModel):
     sexe: Optional[str] = None
     nationalite: Optional[str] = None
     date_premiere_experience: Optional[date] = None
+    lieu_naissance: Optional[str] = None
+    presta_societe: Optional[str] = None
+    presta_forme: Optional[str] = None
+    presta_capital: Optional[str] = None
+    presta_rc: Optional[str] = None
+    presta_siege: Optional[str] = None
+    presta_gerant: Optional[str] = None
     numero_retraite: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
@@ -347,6 +362,13 @@ class FicheSalarieCreate(BaseModel):
     sexe: Optional[str] = None
     nationalite: Optional[str] = None
     date_premiere_experience: Optional[date] = None
+    lieu_naissance: Optional[str] = None
+    presta_societe: Optional[str] = None
+    presta_forme: Optional[str] = None
+    presta_capital: Optional[str] = None
+    presta_rc: Optional[str] = None
+    presta_siege: Optional[str] = None
+    presta_gerant: Optional[str] = None
     numero_retraite: Optional[str] = None
     cin: Optional[str] = None
     cnss: Optional[str] = None
@@ -491,6 +513,13 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "situation_familiale": getattr(e, "situation_familiale", None),
             "nombre_enfants": getattr(e, "nombre_enfants", None),
             "date_naissance": e.date_naissance.isoformat() if getattr(e, "date_naissance", None) else None,
+            "lieu_naissance": getattr(e, "lieu_naissance", None),
+            "presta_societe": getattr(e, "presta_societe", None),
+            "presta_forme": getattr(e, "presta_forme", None),
+            "presta_capital": getattr(e, "presta_capital", None),
+            "presta_rc": getattr(e, "presta_rc", None),
+            "presta_siege": getattr(e, "presta_siege", None),
+            "presta_gerant": getattr(e, "presta_gerant", None),
             "sexe": getattr(e, "sexe", None),
             "nationalite": getattr(e, "nationalite", None),
             "date_premiere_experience": (
@@ -783,6 +812,13 @@ def creer_utilisateur(
             # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
             **_champs_selon_nature(payload),
             date_naissance=payload.date_naissance,
+            lieu_naissance=payload.lieu_naissance,
+            presta_societe=payload.presta_societe,
+            presta_forme=payload.presta_forme,
+            presta_capital=payload.presta_capital,
+            presta_rc=payload.presta_rc,
+            presta_siege=payload.presta_siege,
+            presta_gerant=payload.presta_gerant,
             sexe=payload.sexe,
             nationalite=payload.nationalite or NATIONALITE_DEFAUT,
             date_premiere_experience=payload.date_premiere_experience,
@@ -874,7 +910,9 @@ def modifier_utilisateur(
         # les documents déjà émis à son nom cesseraient de correspondre.
         for attr in ("poste", "departement", "salaire_base", "tjm", "date_embauche",
                      "type_contrat", "situation_familiale",
-                     "date_naissance", "sexe", "nationalite",
+                     "date_naissance", "lieu_naissance", "sexe", "nationalite",
+                     "presta_societe", "presta_forme", "presta_capital",
+                     "presta_rc", "presta_siege", "presta_gerant",
                      "date_premiere_experience", "numero_retraite",
                      "cin", "cnss", "adresse", "telephone"):
             val = getattr(payload, attr)
@@ -1010,6 +1048,13 @@ def ajouter_fiche_salarie(
         # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
         **_champs_selon_nature(payload),
         date_naissance=payload.date_naissance,
+        lieu_naissance=payload.lieu_naissance,
+        presta_societe=payload.presta_societe,
+        presta_forme=payload.presta_forme,
+        presta_capital=payload.presta_capital,
+        presta_rc=payload.presta_rc,
+        presta_siege=payload.presta_siege,
+        presta_gerant=payload.presta_gerant,
         sexe=payload.sexe,
         nationalite=payload.nationalite or NATIONALITE_DEFAUT,
         date_premiere_experience=payload.date_premiere_experience,

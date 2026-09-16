@@ -1,0 +1,215 @@
+<!-- Contrat de prestation de service — auto-entrepreneur (personne physique).
+     Le numéro {{ numero_contrat }} vient du registre des contrats : compteur
+     annuel partagé avec les contrats de prestation société. -->
+<style>
+  @page { size: A4; margin: 18mm 20mm 20mm 20mm; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 10.5pt; line-height: 1.45; color: #111; }
+  .entete { text-align: center; margin-bottom: 6mm; }
+  .entete img { max-height: 22mm; }
+  h1 { font-size: 13.5pt; text-align: center; text-transform: uppercase; margin: 4mm 0 7mm; }
+  h2 { font-size: 11pt; margin: 5mm 0 1.5mm; page-break-after: avoid; }
+  h3 { font-size: 10.5pt; font-style: italic; margin: 3mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 2mm; text-align: justify; }
+  ul { margin: 0 0 2mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; text-align: justify; }
+  .partie { margin-bottom: 3mm; }
+  .identite { margin-left: 4mm; }
+  .identite div { margin-bottom: 1mm; }
+  .signatures { margin-top: 10mm; page-break-inside: avoid; width: 100%; }
+  .signatures td { width: 50%; vertical-align: top; padding-top: 2mm; font-size: 10pt; }
+  .signatures .visuel { height: 30mm; }
+  .signatures img { max-height: 28mm; max-width: 55mm; }
+  .mention { font-style: italic; font-size: 9.5pt; }
+  .pied { margin-top: 8mm; font-size: 9pt; text-align: center; color: #444; }
+</style>
+
+{% if logo_url %}<div class="entete"><img src="{{ logo_url }}" alt="ARRA ENGINEERING"></div>{% endif %}
+
+<h1>Contrat de prestation de service n° {{ numero_contrat }}</h1>
+
+<p><strong>Entre les soussignés, D’UNE PART :</strong></p>
+<div class="partie">
+  <p><strong>ARRA ENGINEERING</strong> — Société à responsabilité limitée, SARL (AU), au capital
+  social de 100.000 dirhams (cent mille dirhams), immatriculée au Registre de Commerce de
+  Casablanca sous le numéro 682335, située à Technopark, Route de Nouaceur, Angle RS 114 &amp;
+  CT 1029, Bureau 325, Casablanca — Maroc.<br>
+  Représentée par M. HMOUCH El Mahdi en qualité de dirigeant général de l’entreprise, ci-après
+  dénommée « ARRA ENGINEERING ».</p>
+</div>
+
+<p><strong>ET D’AUTRE PART — PERSONNE PHYSIQUE :</strong></p>
+<div class="partie">
+  <div class="identite">
+    <div>Nom : <strong>{{ nom }}</strong></div>
+    <div>Prénom : <strong>{{ prenom }}</strong></div>
+    <div>CIN : {{ cin }}</div>
+    <div>Date de naissance : {{ date_naissance }}{% if lieu_naissance %}, à {{ lieu_naissance }}{% endif %}</div>
+    <div>Nationalité : {{ nationalite }}</div>
+    <div>Profession : {{ poste }}</div>
+    <div>Adresse du domicile : {{ adresse }}</div>
+  </div>
+  <p>Ci-après dénommé « le Prestataire ».</p>
+</div>
+
+<p><strong>Les parties ont convenu ce qui suit :</strong></p>
+
+<h2>Article 1 — Objet et champ d’application</h2>
+<p>1.1 Le présent contrat définit les conditions applicables au partenariat entre ARRA
+ENGINEERING et le Prestataire pour l’exécution des prestations dans le cadre d’un contrat conclu
+entre ARRA ENGINEERING et son client.</p>
+<p>1.2 Le Prestataire s’engage à ne rien faire qui pourrait nuire aux intérêts ou à l’image
+d’ARRA ENGINEERING et de son client.</p>
+
+<h2>Article 2 — Durée, période d’essai et résiliation</h2>
+<ul>
+  <li>Le présent contrat constitue un contrat cadre définissant les conditions générales
+      applicables aux prestations qui pourront être confiées au Prestataire.</li>
+  <li>Chaque mission fera l’objet d’un email de confirmation de mission ou de tout autre document
+      écrit précisant notamment : la nature des prestations, le lieu, la durée, les modalités
+      d’exécution et les conditions financières spécifiques si applicable.</li>
+  <li><strong>Période d’évaluation</strong> : applicable à chaque début de mission, pour une durée
+      de 3 mois, résiliable avec un préavis de 7 jours.</li>
+  <li>Après validation de la mission : préavis de 30 jours.</li>
+</ul>
+<p>Le présent contrat cadre peut être résilié à tout moment par l’une des parties moyennant un
+préavis de 30 jours, sauf faute grave ou remontée critique de la part du client permettant une
+résiliation immédiate.</p>
+
+<h2>Article 3 — Description des prestations</h2>
+<p>Le Prestataire fournit les prestations définies par ARRA ENGINEERING et son client, en
+autonomie et indépendance, respectant planning et délais, avec le souci constant de la meilleure
+performance, qualité et relations professionnelles.</p>
+
+<h2>Article 4 — Lieu d’exécution</h2>
+<p>Prestations réalisées :</p>
+<ul>
+  <li>Sur site client ou ARRA ENGINEERING ;</li>
+  <li>À distance via demande formalisée ;</li>
+  <li>Ou tout autre lieu précisé par ARRA ENGINEERING.</li>
+</ul>
+
+<h2>Article 5 — Rémunération et paiement</h2>
+<p>Rémunération : <strong>{{ tjm }} / jour</strong>, payable 15 jours après réception de facture
+à fin du mois. Tout changement des modalités de rémunération fera l’objet de la validation d’un
+avenant au présent contrat.</p>
+<p>Facture mensuelle détaillée, conforme au compte rendu d’activité (CRA) validé par le
+client.</p>
+
+<h2>Article 6 — Obligations des parties</h2>
+<h3>Prestataire</h3>
+<ul>
+  <li>Fournir des prestations de qualité en autonomie et indépendance, et respecter les délais
+      fixés par ARRA ENGINEERING et son client ;</li>
+  <li>Informer ARRA ENGINEERING de toute difficulté ou événement affectant la prestation ;</li>
+  <li>Être en conformité avec toutes les obligations légales et fiscales liées à son statut,
+      notamment en matière de déclarations, cotisations et respect des plafonds fixés par la
+      loi.</li>
+</ul>
+<h3>ARRA ENGINEERING</h3>
+<ul>
+  <li>Verser les honoraires conformément à l’article 5 ;</li>
+  <li>Ne pourra être tenue responsable des dommages résultant d’une faute du Prestataire ou
+      d’événements imprévisibles sur site.</li>
+</ul>
+
+<h2>Article 7 — Documents obligatoires</h2>
+<h3>Auto-entrepreneur</h3>
+<ul>
+  <li>Pièce d’identité valide ;</li>
+  <li>Carte d’auto-entrepreneur ;</li>
+  <li>Assurance couvrant l’accident de travail, obligatoire durant toute la durée
+      d’intervention ;</li>
+  <li>Mise à jour des documents et informations.</li>
+</ul>
+<h3>Société</h3>
+<ul>
+  <li>Attestation fiscale récente (moins de 3 mois) ;</li>
+  <li>Attestation de non-recours au travail dissimulé.</li>
+</ul>
+<h3>Général</h3>
+<ul>
+  <li>Tout autre document jugé nécessaire par ARRA ENGINEERING.</li>
+</ul>
+
+<h2>Article 8 — Incessibilité</h2>
+<p>Le contrat, conclu intuitu personae, ne peut être cédé, transféré ou sous-traité sans accord
+écrit préalable.</p>
+
+<h2>Article 9 — Non-concurrence</h2>
+<p>Le Prestataire s’interdit de conclure tout contrat directement ou indirectement avec le client
+d’ARRA ENGINEERING et de son client pendant le contrat et, dans la limite de ce qui est
+raisonnablement applicable au Maroc, pendant 12 mois après sa fin. Les violations peuvent
+entraîner des poursuites judiciaires et des sanctions.</p>
+
+<h2>Article 10 — Propriété intellectuelle</h2>
+<p>Tous documents, études, logiciels et travaux réalisés dans le cadre du contrat appartiennent
+exclusivement à ARRA ENGINEERING. Le Prestataire transfère tous les droits afférents.</p>
+
+<h2>Article 11 — Confidentialité</h2>
+<p>Le Prestataire respecte la confidentialité totale des informations et données reçues, pendant
+le contrat et pendant 24 mois après sa fin. Aucune divulgation, même partielle ou résumée, n’est
+autorisée.</p>
+
+<h2>Article 12 — Sécurité, hygiène et prévention</h2>
+<p>Le Prestataire respecte toutes les règles de sécurité, hygiène et santé au travail, ainsi que
+les consignes spécifiques du client (EPI, outils conformes, déclaration des dangers).</p>
+<p>Il est pleinement responsable de sa sécurité et de celle des tiers sous sa responsabilité.
+Tout manquement peut entraîner la suspension immédiate des missions, la résiliation du contrat
+et/ou des dommages-intérêts.</p>
+<p>Conformément au Code du travail marocain (articles 281 et suivants), le non-respect des règles
+engage la responsabilité civile, pénale et administrative du Prestataire.</p>
+
+<h2>Article 13 — Assurance</h2>
+<p>Le Prestataire doit souscrire et maintenir en vigueur toute assurance jugée nécessaire pour
+couvrir les risques liés à sa mission (notamment accident de travail). ARRA ENGINEERING ne
+pourra être tenue responsable des charges, frais ou conséquences liées à un accident ou une
+maladie survenant pendant l’exécution de la mission.</p>
+<p>Le Prestataire souscrit également toute autre assurance exigée par ARRA ENGINEERING ou le
+client (responsabilité civile professionnelle, risques spécifiques, santé).</p>
+<p>Les attestations correspondantes doivent être fournies à ARRA ENGINEERING à première
+demande.</p>
+
+<h2>Article 14 — Utilisation du matériel</h2>
+<p>Le Prestataire utilise uniquement le matériel et les logiciels fournis par ARRA ENGINEERING ou
+le client pour la mission.</p>
+<p>Il s’interdit d’utiliser tout autre matériel, équipement ou logiciel non conforme, non
+autorisé ou illégal, sans validation préalable d’ARRA ENGINEERING et du client.</p>
+<p>À la fin du contrat, le matériel doit être restitué en bon état ; les dommages, sauf usure
+normale ou force majeure, sont à la charge du Prestataire.</p>
+
+<h2>Article 15 — Absences</h2>
+<ul>
+  <li>Informer ARRA ENGINEERING sous 2 jours pour toute absence ;</li>
+  <li>Absences de plus de 2 jours : justificatif requis ;</li>
+  <li>Absences prolongées : ARRA ENGINEERING pourra réévaluer les engagements du Prestataire et
+      appliquer, si nécessaire, des pénalités voire une rupture du présent contrat, sans
+      préavis.</li>
+</ul>
+
+<h2>Article 16 — Conciliation et juridiction</h2>
+<p>Tentative de résolution amiable avant tout litige. À défaut, compétence exclusive du Tribunal
+de Commerce de Casablanca.</p>
+
+<h2>Article 17 — Clauses et non-renonciation</h2>
+<p>Le non-exercice d’une disposition n’équivaut pas à une renonciation. L’invalidité d’une clause
+n’affecte pas les autres clauses.</p>
+
+<p>Fait en double exemplaire à {{ lieu_signature }}, le {{ date_signature }}.</p>
+<p class="mention">Faire précéder la signature manuscrite de la mention « lu et approuvé » et du
+cachet.</p>
+
+<table class="signatures">
+  <tr>
+    <td><strong>LE PRESTATAIRE</strong><br>{{ nom_complet }}</td>
+    <td><strong>ARRA ENGINEERING SARL</strong><br>Le dirigeant : {{ signataire_nom }}</td>
+  </tr>
+  <tr>
+    <td class="visuel"></td>
+    <td class="visuel">
+      {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+      {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+    </td>
+  </tr>
+</table>
+
+<div class="pied">ARRA ENGINEERING SARL (AU) — RC Casablanca n° 682335</div>

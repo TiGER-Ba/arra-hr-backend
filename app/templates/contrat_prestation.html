@@ -1,0 +1,169 @@
+<!-- Contrat de prestation de service — entre ARRA et une SOCIÉTÉ de portage.
+     La personne n'y figure que comme ressource mise à disposition : les
+     mentions légales de la société prestataire viennent de la fiche salarié. -->
+<style>
+  @page { size: A4; margin: 18mm 20mm 20mm 20mm; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 10.5pt; line-height: 1.45; color: #111; }
+  .entete { text-align: center; margin-bottom: 6mm; }
+  .entete img { max-height: 22mm; }
+  h1 { font-size: 13.5pt; text-align: center; text-transform: uppercase; margin: 4mm 0 7mm; }
+  h2 { font-size: 11pt; margin: 5mm 0 1.5mm; page-break-after: avoid; }
+  p { margin: 0 0 2mm; text-align: justify; }
+  ul { margin: 0 0 2mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; text-align: justify; }
+  .partie { margin-bottom: 3mm; }
+  .ressource { margin: 2mm 0 2mm 4mm; }
+  .ressource div { margin-bottom: 1mm; }
+  .signatures { margin-top: 10mm; page-break-inside: avoid; width: 100%; }
+  .signatures td { width: 50%; vertical-align: top; padding-top: 2mm; font-size: 10pt; }
+  .signatures .visuel { height: 30mm; }
+  .signatures img { max-height: 28mm; max-width: 55mm; }
+  .mention { font-style: italic; font-size: 9.5pt; }
+  .pied { margin-top: 8mm; font-size: 9pt; text-align: center; color: #444; }
+</style>
+
+{% if logo_url %}<div class="entete"><img src="{{ logo_url }}" alt="ARRA ENGINEERING"></div>{% endif %}
+
+<h1>Contrat de prestation de service n° {{ numero_contrat }}</h1>
+
+<p><strong>ENTRE LES SOUSSIGNÉS :</strong></p>
+
+<p><strong>D’UNE PART :</strong></p>
+<div class="partie">
+  <p><strong>ARRA ENGINEERING SARL</strong>, société à responsabilité limitée au capital social
+  de 100.000 dirhams, immatriculée au Registre de Commerce de Casablanca sous le numéro 682335,
+  ayant son siège social à Technopark, Route de Nouaceur, Angle RS 114 &amp; CT 1029, Bureau 325,
+  Casablanca — Maroc,<br>
+  Représentée par M. HMOUCH El Mahdi, en qualité de dirigeant,<br>
+  Ci-après dénommée « ARRA ENGINEERING ».</p>
+</div>
+
+<p><strong>ET D’AUTRE PART :</strong></p>
+<div class="partie">
+  <p><strong>{{ presta_societe }}</strong>, {{ presta_forme }}, au capital social de
+  {{ presta_capital }}, immatriculée au Registre de Commerce sous le numéro {{ presta_rc }},
+  ayant son siège social à {{ presta_siege }},<br>
+  Représentée par son Gérant {{ presta_gerant }},<br>
+  Ci-après dénommée « le Prestataire ».</p>
+</div>
+
+<p><strong>IL A ÉTÉ CONVENU CE QUI SUIT :</strong></p>
+
+<h2>Article 1 — Objet</h2>
+<p>Le présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire met à
+disposition d’ARRA ENGINEERING une ressource indépendante dans le cadre d’une mission
+d’assistance technique auprès d’un client final.</p>
+<p>La ressource mise à disposition est :</p>
+<div class="ressource">
+  <div>Nom : <strong>{{ nom_complet }}</strong></div>
+  <div>Fonction : {{ poste }}</div>
+</div>
+<p>La mission débute le <strong>{{ date_effet }}</strong>.</p>
+<p>La mission est réalisée dans le cadre d’un contrat de portage commercial, le Prestataire
+agissant comme intermédiaire contractuel.</p>
+<p>Toute modification ou remplacement de la ressource devra faire l’objet d’un accord écrit
+préalable d’ARRA ENGINEERING.</p>
+
+<h2>Article 2 — Nature de la relation</h2>
+<p>Le présent contrat est un contrat commercial entre deux sociétés juridiquement
+indépendantes.</p>
+<p>Le freelance :</p>
+<ul>
+  <li>intervient sous la responsabilité contractuelle du Prestataire ;</li>
+  <li>conserve son statut indépendant ;</li>
+  <li>n’entretient aucun lien de subordination avec ARRA ENGINEERING.</li>
+</ul>
+<p>ARRA ENGINEERING définit uniquement les objectifs et valide les livrables, sans exercer de
+pouvoir hiérarchique ou disciplinaire.</p>
+<p>Le Prestataire garantit ARRA ENGINEERING contre tout risque de requalification en contrat de
+travail.</p>
+
+<h2>Article 3 — Obligations du Prestataire</h2>
+<p>Le Prestataire s’engage à :</p>
+<ul>
+  <li>fournir une ressource qualifiée et opérationnelle ;</li>
+  <li>respecter les exigences du client final.</li>
+</ul>
+<p>Le Prestataire reste seul responsable :</p>
+<ul>
+  <li>de la relation avec le freelance ;</li>
+  <li>des obligations fiscales et sociales ;</li>
+  <li>de toute déclaration administrative.</li>
+</ul>
+
+<h2>Article 4 — Obligations d’ARRA ENGINEERING</h2>
+<p>ARRA ENGINEERING s’engage à :</p>
+<ul>
+  <li>payer les prestations conformément aux conditions définies ;</li>
+  <li>transmettre les validations nécessaires (CRA / livrables).</li>
+</ul>
+
+<h2>Article 5 — Documents et conformité</h2>
+<p>Le Prestataire s’engage à fournir et maintenir à jour :</p>
+<ul>
+  <li>Attestation de régularité fiscale ;</li>
+  <li>Attestation d’immatriculation (RC) ;</li>
+  <li>Attestation d’assurance Responsabilité Civile Professionnelle ;</li>
+  <li>Tout document nécessaire au bon déroulement de la mission.</li>
+</ul>
+
+<h2>Article 6 — Validation des prestations</h2>
+<p>Les prestations feront l’objet de Comptes Rendus d’Activité (CRA) validés mensuellement.</p>
+<p>Sans réserve formulée dans un délai de 5 jours ouvrables, les prestations seront réputées
+acceptées.</p>
+
+<h2>Article 7 — Honoraires et paiement</h2>
+<p>Les honoraires sont fixés à <strong>{{ tjm }} / jour hors taxes (HT)</strong>.</p>
+<p>Le paiement interviendra à 30 jours fin de mois, sous réserve :</p>
+<ul>
+  <li>de la validation du CRA ;</li>
+  <li>de la réception d’une facture conforme.</li>
+</ul>
+<p>En cas de retard de paiement du client final envers ARRA ENGINEERING, le règlement pourra être
+différé jusqu’à encaissement effectif.</p>
+
+<h2>Article 8 — Non-détournement</h2>
+<p>Le Prestataire s’interdit de contracter directement avec le client final pendant la durée de
+la mission et pendant une période de 12 mois après sa fin.</p>
+<p>Toute violation entraînera une pénalité équivalente à 12 mois de facturation moyenne.</p>
+
+<h2>Article 9 — Confidentialité</h2>
+<p>Le Prestataire s’engage à une stricte confidentialité pendant toute la durée du contrat et
+pendant 1 an après sa fin.</p>
+
+<h2>Article 10 — Responsabilité</h2>
+<p>Le Prestataire est seul responsable de la bonne exécution des prestations.</p>
+<p>Il garantit ARRA ENGINEERING contre tout litige, réclamation ou dommage lié à l’exécution de
+la mission.</p>
+
+<h2>Article 11 — Durée et résiliation</h2>
+<p>Le contrat est conclu pour une durée de 12 mois renouvelable tacitement.</p>
+<p>Il peut être résilié par l’une ou l’autre des parties avec un préavis de 30 jours.</p>
+<p>En cas de manquement grave, la résiliation pourra être immédiate sans indemnité.</p>
+
+<h2>Article 12 — Droit applicable</h2>
+<p>Le présent contrat est soumis au droit marocain. Compétence exclusive : Tribunal de commerce
+de Casablanca.</p>
+
+<h2>Article 13 — Force majeure</h2>
+<p>Les obligations des parties seront suspendues en cas de force majeure.</p>
+
+<p>Fait en double exemplaire à {{ lieu_signature }}, le {{ date_signature }}.</p>
+<p class="mention">Faire précéder la signature manuscrite de la mention « lu et approuvé » et du
+cachet, avec le nom et le prénom.</p>
+
+<table class="signatures">
+  <tr>
+    <td><strong>LE PRESTATAIRE</strong><br>{{ presta_societe }}<br>{{ presta_gerant }}</td>
+    <td><strong>ARRA ENGINEERING SARL</strong><br>Le dirigeant : {{ signataire_nom }}</td>
+  </tr>
+  <tr>
+    <td class="visuel"></td>
+    <td class="visuel">
+      {% if signature_url %}<img src="{{ signature_url }}" alt="Signature">{% endif %}
+      {% if cachet_url %}<img src="{{ cachet_url }}" alt="Cachet">{% endif %}
+    </td>
+  </tr>
+</table>
+
+<div class="pied">ARRA ENGINEERING SARL (AU) — RC Casablanca n° 682335</div>

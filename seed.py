@@ -85,6 +85,33 @@ TEMPLATES = [
         "champs_requis": ["poste_souhaite", "departement_cible", "motif"],
         "contenu_html": open("app/templates/demande_mutation.html", encoding="utf-8").read(),
     },
+    # ── Contrats ────────────────────────────────────────────────────────────
+    # Édités depuis /rh/parametrage comme les autres modèles. Ils ne passent PAS
+    # par le circuit des demandes : ils sont produits depuis la fiche du salarié.
+    {
+        "type": "contrat_cdi",
+        "nom": "Contrat de travail — CDI",
+        "champs_requis": [],
+        "contenu_html": open("app/templates/contrat_cdi.html", encoding="utf-8").read(),
+    },
+    {
+        "type": "contrat_cdd",
+        "nom": "Contrat de travail — CDD",
+        "champs_requis": [],
+        "contenu_html": open("app/templates/contrat_cdd.html", encoding="utf-8").read(),
+    },
+    {
+        "type": "contrat_auto_entrepreneur",
+        "nom": "Contrat de prestation — auto-entrepreneur",
+        "champs_requis": [],
+        "contenu_html": open("app/templates/contrat_auto_entrepreneur.html", encoding="utf-8").read(),
+    },
+    {
+        "type": "contrat_prestation",
+        "nom": "Contrat de prestation — société",
+        "champs_requis": [],
+        "contenu_html": open("app/templates/contrat_prestation.html", encoding="utf-8").read(),
+    },
 ]
 
 USERS = [

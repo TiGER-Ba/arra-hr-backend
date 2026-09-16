@@ -25,6 +25,25 @@ def _logo_data_uri() -> str | None:
         return None
     return "data:image/png;base64," + base64.b64encode(chemin.read_bytes()).decode("ascii")
 
+def image_data_uri(url_path: str | None) -> str | None:
+    """Image embarquée en data URI base64.
+
+    Fonctionne à la fois dans l'aperçu HTML (navigateur) ET dans le PDF
+    WeasyPrint, sans dépendre d'un chemin file:// (invisible côté navigateur)
+    ni de l'URL du serveur.
+    """
+    if not url_path:
+        return None
+    abs_path = Path(url_path.lstrip("/")).resolve()
+    if not abs_path.exists():
+        return None
+    ext = abs_path.suffix.lower().lstrip(".")
+    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png",
+            "gif": "gif", "svg": "svg+xml"}.get(ext, "png")
+    data = base64.b64encode(abs_path.read_bytes()).decode("ascii")
+    return f"data:image/{mime};base64,{data}"
+
+
 # Fields that must stay numeric for template rendering
 _NUMERIC_FIELDS = {"salaire_base"}
 
@@ -51,20 +70,7 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
     sig_row = db.query(Parametrage).filter(Parametrage.cle == "signature").first()
     cachet_row = db.query(Parametrage).filter(Parametrage.cle == "cachet").first()
 
-    def _to_abs(url_path: str | None) -> str | None:
-        # Embarque l'image en data URI base64 : fonctionne à la fois dans
-        # l'aperçu HTML (navigateur) ET dans le PDF WeasyPrint, sans dépendre
-        # d'un chemin file:// (invisible côté navigateur) ni de l'URL du serveur.
-        if not url_path:
-            return None
-        rel = url_path.lstrip("/")
-        abs_path = Path(rel).resolve()
-        if not abs_path.exists():
-            return None
-        ext = abs_path.suffix.lower().lstrip(".")
-        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "svg": "svg+xml"}.get(ext, "png")
-        data = base64.b64encode(abs_path.read_bytes()).decode("ascii")
-        return f"data:image/{mime};base64,{data}"
+    _to_abs = image_data_uri
 
     from app.services.devises import devise_employe, symbole
 
