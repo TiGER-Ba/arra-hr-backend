@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.models.rh import RH
 from app.models.user import Utilisateur
 from app.schemas.depot import DepotDocumentDetail, DepotDocumentOut
 from app.services.auth import get_current_user, require_rh
+from app.services import dossier_employe, nextcloud, stockage
 from app.services.profil import profil_rh
 from app.services.security import read_upload_limited, safe_filename, safe_join
 
@@ -71,20 +72,40 @@ async def upload_document(
     # chemin (sinon « ../ » permettrait d'écrire hors du dépôt). La taille est
     # plafonnée AVANT écriture sur disque.
     contenu = read_upload_limited(fichier, settings.MAX_UPLOAD_MB)
-
-    emp_dir = safe_join(DEPOT_DIR, f"employe_{safe_filename(emp.matricule, 'inconnu')}")
-    os.makedirs(emp_dir, exist_ok=True)
-
     safe_name = safe_filename(fichier.filename)
-    base, ext = os.path.splitext(safe_name)
-    counter = 1
-    dest_path = safe_join(emp_dir, safe_name)
-    while os.path.exists(dest_path):
-        dest_path = safe_join(emp_dir, f"{base}_{counter}{ext}")
-        counter += 1
 
-    with open(dest_path, "wb") as f:
-        f.write(contenu)
+    cfg = nextcloud.config(db, obligatoire=False)
+    if cfg:
+        # ⚠️ Le SOUS-DOSSIER porte la visibilité : un document non visible part
+        # dans « Administratif », que le salarié ne voit pas — y compris pour
+        # un RH qui parcourt le drive directement.
+        try:
+            dossier = dossier_employe.assurer_dossier(cfg, emp)
+            nom = dossier_employe.nom_disponible(cfg, dossier, visible_employe, safe_name)
+            relatif = nextcloud.envoyer(
+                cfg,
+                dossier_employe.chemin_document(dossier, visible_employe, nom),
+                contenu,
+                fichier.content_type,
+            )
+        except nextcloud.NextcloudIndisponible as e:
+            # Échouer AVANT d'écrire en base : une ligne sans fichier derrière
+            # afficherait un document impossible à ouvrir.
+            raise HTTPException(status_code=503, detail=str(e))
+        dest_path = stockage.chemin_distant(relatif)
+    else:
+        emp_dir = safe_join(DEPOT_DIR, f"employe_{safe_filename(emp.matricule, 'inconnu')}")
+        os.makedirs(emp_dir, exist_ok=True)
+
+        base, ext = os.path.splitext(safe_name)
+        counter = 1
+        dest_path = safe_join(emp_dir, safe_name)
+        while os.path.exists(dest_path):
+            dest_path = safe_join(emp_dir, f"{base}_{counter}{ext}")
+            counter += 1
+
+        with open(dest_path, "wb") as f:
+            f.write(contenu)
 
     doc = DepotDocument(
         employe_id=emp.id,
@@ -147,7 +168,25 @@ def modifier_document(
     doc = db.query(DepotDocument).filter(DepotDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document introuvable")
-    if visible_employe is not None:
+    if visible_employe is not None and visible_employe != doc.visible_employe:
+        # ⚠️ Sur Nextcloud, c'est le SOUS-DOSSIER qui dit la visibilité. Changer
+        # la colonne sans déplacer le fichier laisserait un document
+        # « administratif » dans « Partagé » : le RH qui parcourt le drive y
+        # lirait le contraire de la vérité, et la synchronisation descendante
+        # rebasculerait la visibilité au passage suivant.
+        if stockage.est_distant(doc.chemin_fichier):
+            cfg = nextcloud.config(db)
+            ancien = stockage.sans_prefixe(doc.chemin_fichier)
+            dossier = dossier_employe.assurer_dossier(cfg, doc.employe)
+            nom = dossier_employe.nom_disponible(
+                cfg, dossier, visible_employe, ancien.split("/")[-1])
+            nouveau = dossier_employe.chemin_document(dossier, visible_employe, nom)
+            try:
+                nextcloud.deplacer(cfg, ancien, nouveau)
+            except nextcloud.NextcloudIndisponible as e:
+                # Ne pas changer la colonne si le fichier n'a pas bougé
+                raise HTTPException(status_code=503, detail=str(e))
+            doc.chemin_fichier = stockage.chemin_distant(nouveau)
         doc.visible_employe = visible_employe
     if description is not None:
         doc.description = description
@@ -168,8 +207,12 @@ def supprimer_document(
     doc = db.query(DepotDocument).filter(DepotDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document introuvable")
-    if os.path.exists(doc.chemin_fichier):
-        os.remove(doc.chemin_fichier)
+    # ⚠️ Retirer le fichier AUSSI : laissé sur Nextcloud, la synchronisation
+    # descendante le réimporterait et la suppression semblerait sans effet.
+    try:
+        stockage.supprimer(db, doc.chemin_fichier)
+    except nextcloud.NextcloudIndisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
     db.delete(doc)
     db.commit()
 
@@ -242,22 +285,30 @@ def telecharger_document(
         if not doc.visible_employe:
             raise HTTPException(status_code=403, detail="Ce document n'est pas encore disponible")
 
-    if not os.path.exists(doc.chemin_fichier):
+    # ⚠️ Le fichier peut être sur Nextcloud ou sur le disque (dépôts antérieurs).
+    # `stockage.lire` tranche d'après le chemin ; l'autorisation, elle, vient
+    # d'être vérifiée juste au-dessus — ce module ne décide de rien.
+    try:
+        contenu = stockage.lire(db, doc.chemin_fichier)
+    except stockage.FichierIntrouvable:
         raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur")
-
-    if inline:
-        # Type deviné pour un affichage correct dans le navigateur (PDF, image…)
-        import mimetypes
-        media = mimetypes.guess_type(doc.chemin_fichier)[0] or "application/pdf"
-        return FileResponse(
-            path=doc.chemin_fichier,
-            filename=doc.nom_fichier,
-            media_type=media,
-            content_disposition_type="inline",
+    except nextcloud.NonConfigure:
+        raise HTTPException(
+            status_code=503,
+            detail="Ce document est stocké sur Nextcloud, qui n'est plus configuré.",
         )
+    except nextcloud.NextcloudIndisponible as e:
+        # 503 et non 404 : le document existe, c'est le stockage qui répond mal.
+        # Les confondre enverrait chercher un fichier qui est bien là.
+        raise HTTPException(status_code=503, detail=str(e))
 
-    return FileResponse(
-        path=doc.chemin_fichier,
-        filename=doc.nom_fichier,
-        media_type="application/octet-stream",
+    import mimetypes
+    media = (mimetypes.guess_type(doc.nom_fichier)[0]
+             or ("application/pdf" if inline else "application/octet-stream"))
+    disposition = "inline" if inline else "attachment"
+    nom = safe_filename(doc.nom_fichier) or "document"
+    return Response(
+        content=contenu,
+        media_type=media,
+        headers={"Content-Disposition": f'{disposition}; filename="{nom}"'},
     )

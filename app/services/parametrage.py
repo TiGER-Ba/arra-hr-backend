@@ -29,6 +29,25 @@ def set_param(db: Session, cle: str, valeur: str) -> None:
         db.add(Parametrage(cle=cle, valeur=valeur))
 
 
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# ⚠️ Un secret n'est JAMAIS écrit en clair par ces deux fonctions. Elles sont la
+# seule porte d'entrée : passer par `set_param` pour un mot de passe le laisserait
+# lisible dans une sauvegarde de la base (cf. services/secrets.py).
+
+def get_param_secret(db: Session, cle: str, default: str = "") -> str:
+    """Secret en clair. Une valeur écrite avant le chiffrement reste lisible."""
+    from app.services.secrets import dechiffrer
+
+    brut = get_param(db, cle, "")
+    return dechiffrer(brut) if brut else default
+
+
+def set_param_secret(db: Session, cle: str, valeur: str) -> None:
+    from app.services.secrets import chiffrer
+
+    set_param(db, cle, chiffrer(valeur))
+
+
 # ── Groq ────────────────────────────────────────────────────────────────────
 
 def groq_keys(db: Session) -> list[str]:

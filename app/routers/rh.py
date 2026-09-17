@@ -20,6 +20,7 @@ from app.models.solde import SoldeEmploye
 from app.models.user import Utilisateur
 from app.schemas.demande import DemandeOut, DemandeRejeter
 from app.services.auth import require_admin, require_rh
+from app.services.audit import log_action
 from app.services.notifications import notifier
 from app.services.pdf_generator import generate_pdf
 from app.services.profil import profil_rh
@@ -946,6 +947,85 @@ def test_parametrage_smtp(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "message": f"Email de test envoyé à {current_user.email}"}
+
+
+# ─── Stockage des documents (Nextcloud) ──────────────────────────────────────
+
+class NextcloudParams(BaseModel):
+    nextcloud_url: Optional[str] = None
+    nextcloud_utilisateur: Optional[str] = None
+    nextcloud_mot_de_passe: Optional[str] = None
+    nextcloud_racine: Optional[str] = None
+
+
+@router.get("/parametrage/nextcloud")
+def get_parametrage_nextcloud(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """État du stockage — le mot de passe n'est jamais renvoyé, même chiffré."""
+    from app.services import nextcloud as nc
+    from app.services.parametrage import get_param
+
+    return {
+        "nextcloud_url": get_param(db, nc.CLE_URL, ""),
+        "nextcloud_utilisateur": get_param(db, nc.CLE_UTILISATEUR, ""),
+        "nextcloud_racine": get_param(db, nc.CLE_RACINE, "") or nc.RACINE_DEFAUT,
+        "racine_defaut": nc.RACINE_DEFAUT,
+        "nextcloud_mot_de_passe_set": bool(get_param(db, nc.CLE_MOT_DE_PASSE, "")),
+        "configure": nc.est_configure(db),
+    }
+
+
+@router.post("/parametrage/nextcloud/test")
+def test_parametrage_nextcloud(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Teste la connexion WebDAV et s'assure que la racine est accessible.
+
+    Une simple lecture ne prouverait rien : le dépôt échouerait quand même au
+    premier document. Le test crée donc le dossier racine s'il manque.
+    """
+    from app.services import nextcloud as nc
+    from app.services.secrets import SecretIllisible
+
+    try:
+        cfg = nc.config(db)
+        return nc.tester(cfg)
+    except (nc.NonConfigure, nc.NextcloudIndisponible, SecretIllisible) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/parametrage/nextcloud")
+def save_parametrage_nextcloud(
+    body: NextcloudParams,
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services import nextcloud as nc
+    from app.services.parametrage import set_param, set_param_secret
+
+    data = body.model_dump(exclude_none=True)
+    for cle, val in data.items():
+        val = str(val).strip()
+        if cle == nc.CLE_MOT_DE_PASSE:
+            # Vide = « ne pas changer » : le formulaire ne le réaffiche jamais,
+            # l'enregistrer vide effacerait un mot de passe qu'on croyait garder.
+            if not val:
+                continue
+            # ⚠️ Chiffré, jamais en clair : ce mot de passe ouvre le drive
+            # partagé de l'entreprise (cf. services/secrets.py).
+            set_param_secret(db, cle, val)
+            continue
+        if cle == nc.CLE_URL:
+            val = val.rstrip("/")
+        set_param(db, cle, val)
+    db.commit()
+    log_action(db, current_user, "parametrage.nextcloud",
+               cible_type="parametrage", cible_libelle="Stockage Nextcloud")
+    db.commit()
+    return {"message": "Stockage enregistré"}
 
 
 @router.post("/parametrage/smtp")
