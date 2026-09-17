@@ -10,6 +10,7 @@ from app.models.solde import SOLDE_TYPES, MouvementSolde, SoldeEmploye
 from app.models.user import Utilisateur
 from app.schemas.solde import MouvementOut, SoldeAjuster, SoldeCreate, SoldeDetail
 from app.services.auth import get_current_user, require_rh
+from app.services.profil import profil_rh
 from app.services.soldes import ajuster_solde, initialiser_soldes_par_defaut
 
 router = APIRouter()
@@ -41,9 +42,16 @@ def mes_soldes(
     current_user: Utilisateur = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.routers.users import est_externe
+
     emp = db.query(Employe).filter(Employe.utilisateur_id == current_user.id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Profil employé introuvable")
+    # ⚠️ Un externe n'acquiert pas de congés : renvoyer une liste vide plutôt
+    # que de laisser `initialiser_soldes_par_defaut` lui en ouvrir au passage,
+    # ce qui afficherait un droit inexistant et fausserait le provisionnement.
+    if est_externe(emp.type_contrat):
+        return []
     annee = annee or datetime.now().year
     # Initialise les soldes manquants automatiquement
     initialiser_soldes_par_defaut(db, emp.id, annee)
@@ -63,9 +71,15 @@ def soldes_employe(
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
+    from app.routers.users import est_externe
+
     emp = db.query(Employe).filter(Employe.id == employe_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employé introuvable")
+    # Même règle que côté intervenant : pas de congés, donc pas de soldes
+    # ouverts à son nom — y compris par simple consultation du RH.
+    if est_externe(emp.type_contrat):
+        return []
     annee = annee or datetime.now().year
     initialiser_soldes_par_defaut(db, emp.id, annee)
     soldes = db.query(SoldeEmploye).filter(
@@ -133,8 +147,8 @@ def ajuster(
     solde = db.query(SoldeEmploye).filter(SoldeEmploye.id == solde_id).first()
     if not solde:
         raise HTTPException(status_code=404, detail="Solde introuvable")
-    rh = db.query(RH).filter(RH.utilisateur_id == current_user.id).first()
-    ajuster_solde(db, solde, payload.delta, payload.motif, rh_id=rh.id if rh else None)
+    rh = profil_rh(current_user, db)
+    ajuster_solde(db, solde, payload.delta, payload.motif, rh_id=rh.id)
     return _solde_to_detail(solde)
 
 
@@ -148,14 +162,14 @@ def reinitialiser(
     solde = db.query(SoldeEmploye).filter(SoldeEmploye.id == solde_id).first()
     if not solde:
         raise HTTPException(status_code=404, detail="Solde introuvable")
-    rh = db.query(RH).filter(RH.utilisateur_id == current_user.id).first()
+    rh = profil_rh(current_user, db)
     ancien = float(solde.consomme)
     if ancien != 0:
         db.add(MouvementSolde(
             solde_id=solde.id,
             delta=ancien,
             motif=f"Réinitialisation par RH (consommé remis à 0, ancien: {ancien:g})",
-            cree_par_rh_id=rh.id if rh else None,
+            cree_par_rh_id=rh.id,
         ))
     solde.consomme = 0
     db.commit()

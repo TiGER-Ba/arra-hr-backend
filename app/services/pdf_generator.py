@@ -12,6 +12,7 @@ from app.models.employee import Employe
 from app.models.parametrage import Parametrage
 from app.models.template import Template as TemplateModel
 from app.services.rendu import rendre_modele
+from app.services.statuts import libelle as _libelle_statut
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -85,7 +86,7 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         "departement": employe.departement,
         "salaire_base": float(employe.salaire_base),
         "date_embauche": employe.date_embauche.strftime("%d/%m/%Y"),
-        "statut_employe": employe.statut,
+        "statut_employe": _libelle_statut(employe.statut),
         "type_contrat": employe.type_contrat or "CDI",
         "situation_familiale": getattr(employe, "situation_familiale", None) or "—",
         # Nul si le salarié n'est pas marié : le template ne doit rien afficher

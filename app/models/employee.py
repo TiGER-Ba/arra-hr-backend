@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -33,7 +33,18 @@ class Employe(Base):
     presta_siege: Mapped[str | None] = mapped_column(String(255), nullable=True)
     presta_gerant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     date_embauche: Mapped[date] = mapped_column(Date, nullable=False)
-    statut: Mapped[str] = mapped_column(String(20), default="actif")  # actif | inactif | suspendu
+    # Cycle de vie de la fiche — cf. services/statuts.py pour les valeurs et
+    # les règles. ⚠️ Décrit le DOSSIER, pas l'accès à l'application : c'est
+    # Utilisateur.is_active qui ouvre ou ferme la session.
+    statut: Mapped[str] = mapped_column(String(20), default="actif_interne")
+    # Renseignés uniquement quand le dossier est clos (« quitté ») ; remis à
+    # NULL sinon, pour que la base ne garde pas une date de sortie invisible à
+    # la saisie mais toujours reprise dans les documents.
+    date_fin: Mapped[date | None] = mapped_column(Date, nullable=True)
+    motif_fin: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Commentaire libre sur le statut : obligatoire pour un désistement (il faut
+    # savoir pourquoi la personne n'est pas venue), facultatif pour une sortie.
+    commentaire_statut: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Entité employeur : « MA » (ARRA Maroc) ou « FR » (ARRA France).
     # Détermine le calendrier de jours fériés appliqué à sa feuille de temps.
     entite: Mapped[str] = mapped_column(String(2), nullable=False, default="MA")

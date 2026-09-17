@@ -86,6 +86,50 @@ def _migrer_employes() -> None:
     _add_column(cols, "employes", "presta_gerant", "VARCHAR(150)")
     # RIB de virement, facultatif
     _add_column(cols, "employes", "rib", "VARCHAR(40)")
+    # Cycle de vie de la fiche — renseignés seulement quand le dossier est clos
+    _add_column(cols, "employes", "date_fin", "DATE")
+    _add_column(cols, "employes", "motif_fin", "VARCHAR(60)")
+    _add_column(cols, "employes", "commentaire_statut", "TEXT")
+    _migrer_statuts()
+
+
+def _migrer_statuts() -> None:
+    """Bascule les anciens statuts (actif | inactif | suspendu) vers le cycle de vie.
+
+    L'ancienne colonne n'était pilotée par aucun écran : toutes les fiches
+    portent « actif ». On les classe donc en **actif interne**, charge au RH de
+    basculer en « actif production » celles qui sont chez un client — deviner
+    l'affectation à leur place produirait une donnée fausse.
+
+    Seule exception : une fiche dont le **compte est déjà désactivé** ne peut pas
+    être annoncée « actif ». Elle passe en « quitté », sans date ni motif — le RH
+    les complétera. Mieux vaut un dossier clos incomplet qu'un dossier clos
+    affiché comme actif.
+
+    ⚠️ **L'ordre compte.** Les sorties sont déduites AVANT le remappage général,
+    en lisant les anciennes valeurs — jamais celles que la migration vient
+    d'écrire. Sinon le passage suivant reprendrait tout fiche par fiche : un
+    salarié remis en « actif interne » par le RH mais dont le compte est
+    désactivé pour une autre raison (congé sans solde, suspension) se verrait
+    reclassé « quitté » au prochain démarrage.
+
+    Après ce passage plus aucune ligne ne porte d'ancienne valeur : repasser la
+    migration ne fait donc rien du tout.
+    """
+    _executer(
+        "UPDATE employes SET statut = 'quitte' WHERE statut = 'inactif'",
+        "statuts : inactif → quitté",
+    )
+    _executer(
+        "UPDATE employes SET statut = 'quitte' WHERE statut = 'actif' "
+        "AND utilisateur_id IN (SELECT id FROM utilisateurs WHERE is_active = FALSE)",
+        "statuts : compte désactivé → quitté",
+    )
+    _executer(
+        "UPDATE employes SET statut = 'actif_interne' "
+        "WHERE statut IN ('actif', 'suspendu') OR statut IS NULL",
+        "statuts : actif/suspendu → actif interne",
+    )
 
 
 def _migrer_matricules() -> None:

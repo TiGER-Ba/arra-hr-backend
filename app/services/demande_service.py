@@ -21,6 +21,29 @@ from app.services.notifications import notifier_rh
 # ré-autoriser l'auto-génération d'un type, le rajouter dans cet ensemble.
 AUTO_GENERATION_TYPES: set[str] = set()
 
+# Types ouverts aux EXTERNES (freelance, prestataire).
+#
+# Un externe n'est pas salarié : il n'a ni bulletin de paie, ni congés, ni
+# avance sur salaire, et une « attestation de travail » lui attribuerait un
+# contrat de travail qu'il n'a pas — un document faux, et juridiquement
+# risqué (requalification). Restent ce qui décrit une mission.
+#
+# ⚠️ C'est la liste à étendre pour ouvrir un nouveau type aux externes :
+# tout ce qui n'y figure pas leur est refusé, côté liste ET côté création.
+TYPES_EXTERNE: set[str] = {
+    "ordre_mission",
+    "certificat_presence",
+}
+
+
+def types_autorises(employe) -> list[str]:
+    """Types de demandes accessibles, selon la nature de l'engagement."""
+    from app.routers.users import est_externe
+
+    if employe is not None and est_externe(getattr(employe, "type_contrat", None)):
+        return [t for t in DEMANDES_CONFIG if t in TYPES_EXTERNE]
+    return list(DEMANDES_CONFIG)
+
 DEMANDES_CONFIG = {
     "bulletin_paie": {
         "label": "Bulletin de paie",

@@ -8,7 +8,9 @@ from app.models.employee import Employe
 from app.models.user import Utilisateur
 from app.schemas.demande import DemandeOut
 from app.services.auth import get_current_user
-from app.services.demande_service import DEMANDES_CONFIG, champs_meta, creer_demande
+from app.services.demande_service import (
+    DEMANDES_CONFIG, champs_meta, creer_demande, types_autorises,
+)
 
 router = APIRouter()
 
@@ -37,9 +39,13 @@ def types_demandes(
     employe = db.query(Employe).filter(Employe.utilisateur_id == current_user.id).first()
     devise = devise_employe(employe) if employe else "MAD"
 
+    # ⚠️ Filtré par nature : un externe n'a ni bulletin, ni congés, ni
+    # attestation de travail. Lui présenter ces types l'amènerait à demander un
+    # document qu'on devrait ensuite refuser.
+    autorises = types_autorises(employe)
     return [
-        {"key": k, "label": v["label"], "champs": champs_meta(k, devise)}
-        for k, v in DEMANDES_CONFIG.items()
+        {"key": k, "label": DEMANDES_CONFIG[k]["label"], "champs": champs_meta(k, devise)}
+        for k in autorises
     ]
 
 
@@ -51,6 +57,12 @@ def creer_ma_demande(
 ):
     """Crée une demande depuis le formulaire employé."""
     employe = _get_employe(current_user, db)
+    # Le filtrage de la liste guide l'interface ; celui-ci fait foi.
+    if payload.type not in types_autorises(employe):
+        raise HTTPException(
+            status_code=403,
+            detail="Ce type de document n'est pas disponible pour un intervenant externe",
+        )
     try:
         return creer_demande(db, employe.id, payload.type, payload.donnees)
     except ValueError as e:

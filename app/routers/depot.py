@@ -14,6 +14,7 @@ from app.models.rh import RH
 from app.models.user import Utilisateur
 from app.schemas.depot import DepotDocumentDetail, DepotDocumentOut
 from app.services.auth import get_current_user, require_rh
+from app.services.profil import profil_rh
 from app.services.security import read_upload_limited, safe_filename, safe_join
 
 router = APIRouter()
@@ -22,10 +23,8 @@ DEPOT_DIR = os.path.join(settings.UPLOADS_DIR, "depot")
 
 
 def _get_rh(user: Utilisateur, db: Session) -> RH:
-    rh = db.query(RH).filter(RH.utilisateur_id == user.id).first()
-    if not rh:
-        raise HTTPException(status_code=404, detail="Profil RH introuvable")
-    return rh
+    """Profil RH du déposant — créé au besoin (cf. services/profil)."""
+    return profil_rh(user, db)
 
 
 def _get_employe_or_404(employe_id: int, db: Session) -> Employe:

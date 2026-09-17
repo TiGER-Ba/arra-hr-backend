@@ -39,12 +39,13 @@ from app.models.user import Utilisateur
 from app.services.audit import log_action
 from app.services.auth import get_current_user, get_password_hash, require_rh, verify_password
 from app.services.email import send_email
+from app.services import statuts as _statuts
 from app.services.soldes import initialiser_soldes_par_defaut
 
 router = APIRouter()
 
 VALID_ROLES = {"employe", "rh", "admin"}
-VALID_STATUTS = {"actif", "inactif", "suspendu"}
+# Les statuts vivent dans services/statuts.py (cycle de vie + motifs de fin).
 # Nature de l'engagement. Elle n'est PAS stockée : elle se déduit du type de
 # contrat, ce qui évite qu'une colonne « externe » et le contrat se contredisent.
 CONTRATS_INTERNES = ("CDI", "CDD", "Stage")
@@ -127,33 +128,45 @@ def _valider_fiche(payload, requis=None) -> None:
         )
 
 
-def _champs_selon_nature(payload) -> dict:
+def _champs_selon_nature(payload, strict: bool = True) -> dict:
     """Valeurs monétaires et sociales cohérentes avec la nature de l'engagement.
 
     Un externe n'a ni salaire, ni situation familiale, ni CNSS : on force ces
     champs à vide plutôt que d'enregistrer ce qu'un client aurait pu envoyer,
     sinon la masse salariale et les documents reprendraient des valeurs fausses.
+
+    `strict=False` n'assouplit **que** l'exigence de saisie (fiche en brouillon) :
+    les champs qui ne s'appliquent pas à la nature restent forcés à vide, sinon
+    un brouillon d'externe pourrait garder un salaire qui ressortirait à
+    l'activation.
     """
     externe = est_externe(getattr(payload, "type_contrat", None))
     if externe:
         tjm = payload.tjm
         if tjm is None or float(tjm) <= 0:
-            raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+            if strict:
+                raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+            tjm = None
         return {
             "salaire_base": 0,      # colonne NOT NULL : 0 = « pas de salaire »
-            "tjm": float(tjm),
+            "tjm": float(tjm) if tjm is not None else None,
             "situation_familiale": None,
             "nombre_enfants": None,
             "cnss": None,
         }
 
     if payload.salaire_base is None or float(payload.salaire_base) <= 0:
-        raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+        if strict:
+            raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+        salaire = 0
+    else:
+        salaire = float(payload.salaire_base)
     return {
-        "salaire_base": float(payload.salaire_base),
+        "salaire_base": salaire,
         "tjm": None,
         "situation_familiale": payload.situation_familiale,
-        "nombre_enfants": _resoudre_enfants(payload.situation_familiale, payload.nombre_enfants),
+        "nombre_enfants": _resoudre_enfants(payload.situation_familiale,
+                                            payload.nombre_enfants, strict=strict),
         "cnss": payload.cnss,
     }
 
@@ -163,7 +176,7 @@ SITUATION_AVEC_ENFANTS = "Marié(e)"
 MAX_ENFANTS = 20
 
 
-def _resoudre_enfants(situation: str | None, nombre) -> int | None:
+def _resoudre_enfants(situation: str | None, nombre, strict: bool = True) -> int | None:
     """Nombre d'enfants cohérent avec la situation familiale.
 
     Marié(e) → valeur exigée (0 accepté, et distinct de « non renseigné »).
@@ -174,6 +187,8 @@ def _resoudre_enfants(situation: str | None, nombre) -> int | None:
     if situation != SITUATION_AVEC_ENFANTS:
         return None
     if nombre in (None, ""):
+        if not strict:
+            return None          # fiche en brouillon : à compléter avant activation
         raise HTTPException(
             status_code=400,
             detail="Nombre d'enfants requis pour un salarié marié",
@@ -188,6 +203,64 @@ def _resoudre_enfants(situation: str | None, nombre) -> int | None:
             detail=f"Nombre d'enfants attendu entre 0 et {MAX_ENFANTS}",
         )
     return valeur
+
+
+def _resoudre_statut(statut, type_contrat, date_fin, motif_fin, commentaire,
+                     date_embauche=None) -> dict:
+    """Statut du dossier et champs de sortie cohérents entre eux.
+
+    Même principe que `_resoudre_enfants` : ce qui ne s'applique pas au statut
+    retenu est **remis à NULL**, pour que la base ne conserve pas une date de
+    sortie invisible à la saisie mais toujours reprise dans les documents.
+
+    - `quitté` → date de fin **et** motif exigés, le motif devant appartenir à la
+      liste de la nature du contrat (un freelance ne « démissionne » pas) ;
+    - `désistement` → commentaire exigé : sans le motif du renoncement, garder la
+      fiche « pour l'avenir » n'apprend rien ;
+    - tout autre statut → date de fin et motif effacés.
+    """
+    from app.services import statuts as S
+
+    valeur = (statut or "").strip() or S.ACTIF_INTERNE
+    if valeur not in S.STATUTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Statut invalide. Valeurs : {', '.join(S.STATUTS)}",
+        )
+
+    commentaire = (commentaire or "").strip() or None
+
+    if valeur == S.QUITTE:
+        if not date_fin:
+            raise HTTPException(status_code=400, detail="Date de fin requise pour une sortie")
+        if date_embauche and date_fin < date_embauche:
+            raise HTTPException(
+                status_code=400,
+                detail="La date de fin ne peut pas précéder la date de début de contrat",
+            )
+        autorises = S.motifs_fin(type_contrat)
+        motif = (motif_fin or "").strip()
+        if not motif:
+            raise HTTPException(status_code=400, detail="Motif de fin de contrat requis")
+        if motif not in autorises:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Motif invalide pour ce contrat. Valeurs : {', '.join(autorises)}",
+            )
+        return {"statut": valeur, "date_fin": date_fin, "motif_fin": motif,
+                "commentaire_statut": commentaire}
+
+    if valeur == S.DESISTEMENT:
+        if not commentaire:
+            raise HTTPException(
+                status_code=400,
+                detail="Commentaire requis pour un désistement (motif du renoncement)",
+            )
+        return {"statut": valeur, "date_fin": None, "motif_fin": None,
+                "commentaire_statut": commentaire}
+
+    return {"statut": valeur, "date_fin": None, "motif_fin": None,
+            "commentaire_statut": commentaire}
 
 
 VALID_SEXES = {"M", "F"}
@@ -316,6 +389,11 @@ class UserCreate(BaseModel):
     cnss: Optional[str] = None
     adresse: Optional[str] = None
     telephone: Optional[str] = None
+    # Cycle de vie de la fiche — cf. services/statuts.py
+    statut: Optional[str] = None
+    date_fin: Optional[date] = None
+    motif_fin: Optional[str] = None
+    commentaire_statut: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -326,7 +404,10 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     service: Optional[str] = None                 # RH
     poste: Optional[str] = None                   # employé
-    statut: Optional[str] = None                  # employé : actif | inactif | suspendu
+    statut: Optional[str] = None                  # cf. services/statuts.py
+    date_fin: Optional[date] = None               # sortie : date de fin
+    motif_fin: Optional[str] = None               # sortie : motif
+    commentaire_statut: Optional[str] = None
     entite: Optional[str] = None                  # MA | FR
     departement: Optional[str] = None
     salaire_base: Optional[float] = None
@@ -387,6 +468,11 @@ class FicheSalarieCreate(BaseModel):
     cnss: Optional[str] = None
     adresse: Optional[str] = None
     telephone: Optional[str] = None
+    # Cycle de vie de la fiche — cf. services/statuts.py
+    statut: Optional[str] = None
+    date_fin: Optional[date] = None
+    motif_fin: Optional[str] = None
+    commentaire_statut: Optional[str] = None
 
 
 class SelfProfileUpdate(BaseModel):
@@ -521,7 +607,12 @@ def _user_to_dict(u: Utilisateur) -> dict:
             "tjm": float(e.tjm) if getattr(e, "tjm", None) is not None else None,
             "est_externe": est_externe(e.type_contrat),
             "date_embauche": e.date_embauche.isoformat() if e.date_embauche else None,
-            "statut": e.statut, "type_contrat": e.type_contrat,
+            "statut": e.statut,
+            "statut_libelle": _statuts.libelle(e.statut),
+            "date_fin": e.date_fin.isoformat() if getattr(e, "date_fin", None) else None,
+            "motif_fin": getattr(e, "motif_fin", None),
+            "commentaire_statut": getattr(e, "commentaire_statut", None),
+            "type_contrat": e.type_contrat,
             "entite": getattr(e, "entite", None) or "MA",
             "situation_familiale": getattr(e, "situation_familiale", None),
             "nombre_enfants": getattr(e, "nombre_enfants", None),
@@ -760,6 +851,33 @@ def creer_nationalite(
     return {"nom": nom}
 
 
+@router.get("/statuts")
+def liste_statuts(current_user: Utilisateur = Depends(require_rh)):
+    """Statuts du cycle de vie et motifs de fin, par nature de contrat.
+
+    ⚠️ Déclarée avant les routes `/{user_id}`, sinon FastAPI lirait « statuts »
+    comme un identifiant d'utilisateur.
+
+    Le frontend construit ses listes déroulantes d'ici : dupliquer les valeurs
+    côté client les ferait diverger à la première évolution.
+    """
+    return {
+        "statuts": [
+            {
+                "valeur": v,
+                "libelle": lib,
+                "clos": _statuts.est_clos(v),
+                "exige_fiche_complete": _statuts.exige_fiche_complete(v),
+            }
+            for v, lib in _statuts.STATUTS.items()
+        ],
+        "motifs_fin": {
+            "interne": list(_statuts.MOTIFS_FIN_INTERNE),
+            "externe": list(_statuts.MOTIFS_FIN_EXTERNE),
+        },
+    }
+
+
 @router.get("/postes")
 def liste_postes(
     current_user: Utilisateur = Depends(require_rh),
@@ -807,9 +925,18 @@ def creer_utilisateur(
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs : {sorted(VALID_ROLES)}")
     _assert_can_manage(current_user, payload.role)
 
+    # Statut du dossier : il commande la suite (champs exigés, invitation, accès)
+    statut = _resoudre_statut(payload.statut, payload.type_contrat, payload.date_fin,
+                              payload.motif_fin, payload.commentaire_statut,
+                              payload.date_embauche)
+    fiche_complete = _statuts.exige_fiche_complete(statut["statut"])
+
     # Mot de passe : soit fourni maintenant, soit défini plus tard via invitation email
-    inviter = bool(payload.envoyer_invitation)
-    if inviter:
+    # ⚠️ Un brouillon n'invite personne — la fiche n'est pas prête à être ouverte —
+    # et n'exige donc pas non plus de mot de passe : le compte naît inutilisable,
+    # et l'invitation partira à l'activation.
+    inviter = bool(payload.envoyer_invitation) and fiche_complete
+    if inviter or (not fiche_complete and not payload.mot_de_passe):
         raw_password = secrets.token_urlsafe(24)  # aléatoire : le compte reste inutilisable tant que non défini
     else:
         if not payload.mot_de_passe or len(payload.mot_de_passe) < MIN_PASSWORD_LEN:
@@ -826,7 +953,15 @@ def creer_utilisateur(
     besoin_fiche = payload.role == "employe" or est_salarie
     matricule = None
     if besoin_fiche:
-        _valider_fiche(payload)
+        if fiche_complete:
+            _valider_fiche(payload)
+        elif not payload.date_embauche:
+            # Seul champ encore exigé en brouillon : il ancre le matricule, le
+            # contrat et tous les documents. Sans lui la fiche n'a pas de prise.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{libelle_date_debut(payload.type_contrat)} requise, même en brouillon",
+            )
         _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
         _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
         _valider_enum(payload.sexe, VALID_SEXES, "Sexe")
@@ -855,13 +990,17 @@ def creer_utilisateur(
         emp = Employe(
             utilisateur_id=user.id,
             matricule=matricule,
-            poste=payload.poste,
-            departement=payload.departement,
+            # Colonnes NOT NULL : en brouillon elles peuvent rester vides, mais
+            # pas nulles — `_valider_fiche` les exigera à l'activation.
+            poste=(payload.poste or "").strip(),
+            departement=(payload.departement or "").strip(),
             date_embauche=payload.date_embauche,
             type_contrat=payload.type_contrat or "CDI",
             entite=entite,
+            # Cycle de vie : statut, et date/motif de sortie cohérents avec lui
+            **statut,
             # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
-            **_champs_selon_nature(payload),
+            **_champs_selon_nature(payload, strict=fiche_complete),
             date_naissance=payload.date_naissance,
             lieu_naissance=payload.lieu_naissance,
             presta_societe=payload.presta_societe,
@@ -879,10 +1018,19 @@ def creer_utilisateur(
         )
         db.add(emp)
         db.flush()
-        initialiser_soldes_par_defaut(db, emp.id)
-        assurer_departement(db, payload.departement)
+        # ⚠️ Un externe n'a pas de congés : lui ouvrir des soldes afficherait un
+        # droit qu'il n'a pas et fausserait le provisionnement.
+        if not est_externe(emp.type_contrat):
+            initialiser_soldes_par_defaut(db, emp.id)
+        # Les listes de choix n'apprennent rien d'un brouillon incomplet
+        if emp.departement:
+            assurer_departement(db, emp.departement)
         assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
-        assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
+        if emp.poste:
+            assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
+        # Dossier clos dès la création (désistement enregistré « pour l'avenir ») :
+        # la fiche reste consultable, le compte ne s'ouvre pas.
+        user.is_active = _statuts.compte_doit_etre_actif(emp.statut)
     if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
@@ -938,10 +1086,6 @@ def modifier_utilisateur(
         user.rh.service = payload.service
     if user.employe:
         e = user.employe
-        if payload.statut is not None:
-            if payload.statut not in VALID_STATUTS:
-                raise HTTPException(status_code=400, detail=f"Statut invalide. Valeurs : {sorted(VALID_STATUTS)}")
-            e.statut = payload.statut
         if payload.entite is not None:
             entite = payload.entite.upper()
             if entite not in ("MA", "FR"):
@@ -972,13 +1116,41 @@ def modifier_utilisateur(
             if val is not None:
                 setattr(e, attr, val)
 
+        # Statut du dossier, sur les valeurs RÉSULTANTES : le motif de fin doit
+        # correspondre au contrat tel qu'il sera après modification, et la date
+        # de fin à la date de début telle qu'elle sera enregistrée.
+        if (payload.statut is not None or payload.date_fin is not None
+                or payload.motif_fin is not None or payload.commentaire_statut is not None):
+            resolu = _resoudre_statut(
+                payload.statut if payload.statut is not None else e.statut,
+                e.type_contrat,
+                payload.date_fin if payload.date_fin is not None else e.date_fin,
+                payload.motif_fin if payload.motif_fin is not None else e.motif_fin,
+                (payload.commentaire_statut if payload.commentaire_statut is not None
+                 else e.commentaire_statut),
+                e.date_embauche,
+            )
+            for champ, valeur in resolu.items():
+                setattr(e, champ, valeur)
+            # Clore le dossier coupe l'accès ; le rouvrir le rétablit.
+            # ⚠️ `_guard_deactivation` reste consulté : le dernier RH/admin actif
+            # ne peut pas se désactiver par un changement de statut non plus.
+            actif = _statuts.compte_doit_etre_actif(e.statut)
+            if actif != user.is_active:
+                _guard_deactivation(user, actif, current_user, db)
+                user.is_active = actif
+
+        fiche_complete = _statuts.exige_fiche_complete(e.statut)
+
         # Cohérence avec la nature RÉSULTANTE. Passer un salarié en freelance
         # doit vider salaire, situation familiale, enfants et CNSS — et
         # réciproquement — sinon la fiche garderait des valeurs contradictoires
         # que la masse salariale et les documents reprendraient.
         if est_externe(e.type_contrat):
             if e.tjm is None or float(e.tjm) <= 0:
-                raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+                if fiche_complete:
+                    raise HTTPException(status_code=400, detail="Le TJM est requis pour un externe")
+                e.tjm = None
             e.salaire_base = 0
             e.situation_familiale = None
             e.nombre_enfants = None
@@ -986,7 +1158,9 @@ def modifier_utilisateur(
         else:
             e.tjm = None
             if e.salaire_base is None or float(e.salaire_base) <= 0:
-                raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+                if fiche_complete:
+                    raise HTTPException(status_code=400, detail="Le salaire est requis pour un salarié")
+                e.salaire_base = 0
             # Le nombre d'enfants suit la situation *résultante*, pas celle du
             # payload : sans cela, un salarié marié qui passe célibataire
             # garderait ses enfants alors que le champ disparaît du formulaire.
@@ -995,6 +1169,12 @@ def modifier_utilisateur(
                     e.situation_familiale,
                     payload.nombre_enfants if payload.nombre_enfants is not None else e.nombre_enfants,
                 )
+
+        # Sortie de brouillon : la fiche doit être complète pour être activée.
+        # Contrôlée sur l'objet RÉSULTANT, donc les champs déjà en base comptent
+        # — le RH n'a pas à ressaisir ce qu'il avait renseigné au brouillon.
+        if fiche_complete:
+            _valider_fiche(e)
 
         assurer_departement(db, payload.departement)
         assurer_valeur(db, CATEGORIE_NATIONALITE, payload.nationalite)
@@ -1076,7 +1256,12 @@ def ajouter_fiche_salarie(
     if user.employe:
         raise HTTPException(status_code=400, detail="Ce compte a déjà une fiche salarié")
 
-    _valider_fiche(payload)
+    statut = _resoudre_statut(payload.statut, payload.type_contrat, payload.date_fin,
+                              payload.motif_fin, payload.commentaire_statut,
+                              payload.date_embauche)
+    fiche_complete = _statuts.exige_fiche_complete(statut["statut"])
+    if fiche_complete:
+        _valider_fiche(payload)
     _valider_enum(payload.type_contrat, VALID_CONTRATS, "Type de contrat")
     _valider_enum(payload.situation_familiale, VALID_SITUATIONS, "Situation familiale")
     _valider_enum(payload.sexe, VALID_SEXES, "Sexe")
@@ -1094,13 +1279,16 @@ def ajouter_fiche_salarie(
     emp = Employe(
         utilisateur_id=user.id,
         matricule=matricule,
-        poste=payload.poste,
-        departement=payload.departement,
+        # Colonnes NOT NULL : vides tolérées en brouillon, jamais nulles
+        poste=(payload.poste or "").strip(),
+        departement=(payload.departement or "").strip(),
         date_embauche=payload.date_embauche,
         type_contrat=payload.type_contrat or "CDI",
         entite=entite,
+        # Cycle de vie : statut, et date/motif de sortie cohérents avec lui
+        **statut,
         # salaire/TJM, situation familiale, enfants et CNSS : selon la nature
-        **_champs_selon_nature(payload),
+        **_champs_selon_nature(payload, strict=fiche_complete),
         date_naissance=payload.date_naissance,
         lieu_naissance=payload.lieu_naissance,
         presta_societe=payload.presta_societe,
@@ -1118,10 +1306,15 @@ def ajouter_fiche_salarie(
     )
     db.add(emp)
     db.flush()
-    initialiser_soldes_par_defaut(db, emp.id)
-    assurer_departement(db, payload.departement)
+    # ⚠️ Un externe n'a pas de congés : pas de soldes ouverts à son nom.
+    if not est_externe(emp.type_contrat):
+        initialiser_soldes_par_defaut(db, emp.id)
+    if emp.departement:
+        assurer_departement(db, emp.departement)
     assurer_valeur(db, CATEGORIE_NATIONALITE, emp.nationalite)
-    assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
+    if emp.poste:
+        assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
+    user.is_active = _statuts.compte_doit_etre_actif(emp.statut)
     log_action(
         db, current_user, "user.add_employe",
         cible_type="utilisateur", cible_id=user.id,

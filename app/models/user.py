@@ -32,3 +32,16 @@ class Utilisateur(Base):
     def employe_id(self) -> int | None:
         """id de la fiche salarié si le compte en a une (indépendamment du rôle)."""
         return self.employe.id if self.employe else None
+
+    @property
+    def est_externe(self) -> bool:
+        """Vrai si la fiche rattachée est celle d'un intervenant externe.
+
+        ⚠️ Déduit du type de contrat, jamais stocké — cf. `est_externe()` dans
+        routers/users.py. Exposé dès la connexion parce que l'externe n'a pas
+        le même espace que le salarié : sans cette information, le client ne
+        saurait pas où l'envoyer.
+        """
+        from app.routers.users import est_externe as _externe
+
+        return bool(self.employe and _externe(self.employe.type_contrat))

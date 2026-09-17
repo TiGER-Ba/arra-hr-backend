@@ -38,6 +38,8 @@ class UtilisateurOut(BaseModel):
     role: str
     is_active: bool
     employe_id: int | None = None  # présent si le compte est aussi un salarié
+    # Intervenant externe : espace dédié, pas celui du salarié
+    est_externe: bool = False
     created_at: datetime
 
 

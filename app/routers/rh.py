@@ -22,16 +22,15 @@ from app.schemas.demande import DemandeOut, DemandeRejeter
 from app.services.auth import require_admin, require_rh
 from app.services.notifications import notifier
 from app.services.pdf_generator import generate_pdf
+from app.services.profil import profil_rh
 from app.services.soldes import appliquer_deduction_sur_validation
 
 router = APIRouter()
 
 
 def _get_rh(current_user: Utilisateur, db: Session) -> RH:
-    rh = db.query(RH).filter(RH.utilisateur_id == current_user.id).first()
-    if not rh:
-        raise HTTPException(status_code=404, detail="Profil RH introuvable")
-    return rh
+    """Profil RH de l'auteur de l'action — créé au besoin (cf. services/profil)."""
+    return profil_rh(current_user, db)
 
 
 def _enrich_demande(d: Demande) -> dict:
@@ -323,8 +322,13 @@ def pilotage(
 
     from app.routers.users import est_externe
 
+    from app.services.statuts import est_actif
+
     employes = db.query(Employe).all()
-    actifs = [e for e in employes if e.statut == "actif"]
+    # ⚠️ « Actif » couvre désormais DEUX statuts (interne et production) — un
+    # test d'égalité sur « actif » viderait le tableau de bord.
+    # Brouillons, désistements et sorties n'entrent pas dans l'effectif.
+    actifs = [e for e in employes if est_actif(e.statut)]
     # ⚠️ Ventilée par entité : additionner des dirhams et des euros donnerait
     # un total faux. Une entité sans salarié actif n'apparaît pas.
     # ⚠️ Les EXTERNES en sont exclus : ils sont facturés au TJM, pas salariés —

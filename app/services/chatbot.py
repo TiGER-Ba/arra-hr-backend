@@ -15,6 +15,7 @@ from app.services.demande_service import DEMANDES_CONFIG
 from app.services.parametrage import groq_keys, groq_model
 from app.services.rag import get_rag_service
 from app.services.soldes import initialiser_soldes_par_defaut
+from app.services.statuts import libelle as _libelle_statut
 
 THINK_TAG_PATTERN = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -151,7 +152,7 @@ def _build_profil(employe) -> str:
         # à un salarié payé en euros.
         f"- Salaire : {formater_montant(employe.salaire_base, entite)}\n"
         f"- Date d'embauche : {employe.date_embauche}{anciennete}\n"
-        f"- Statut : {employe.statut}"
+        f"- Statut : {_libelle_statut(employe.statut)}"
     )
 
 
