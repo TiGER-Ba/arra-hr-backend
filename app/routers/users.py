@@ -754,19 +754,37 @@ def stats_utilisateurs(
     def _count(**flt):
         return db.query(func.count(Utilisateur.id)).filter_by(**flt).scalar() or 0
 
+    # ⚠️ Salariés et externes comptés séparément. Les additionner sous
+    # « Employés » masquait la part d'externes — or c'est précisément la
+    # distinction que fait l'entreprise (masse salariale contre facturation).
+    # La nature n'étant pas stockée, elle se lit sur le type de contrat.
+    def _count_nature(externe: bool):
+        q = db.query(func.count(Employe.id)).join(
+            Utilisateur, Employe.utilisateur_id == Utilisateur.id
+        ).filter(Utilisateur.role == "employe")
+        if externe:
+            q = q.filter(Employe.type_contrat.in_(CONTRATS_EXTERNES))
+        else:
+            q = q.filter(Employe.type_contrat.notin_(CONTRATS_EXTERNES))
+        return q.scalar() or 0
+
+    salaries, externes = _count_nature(False), _count_nature(True)
+
     if current_user.role != "admin":
         return {
             "total": _count(role="employe"),
             "actifs": db.query(func.count(Utilisateur.id)).filter(
                 Utilisateur.role == "employe", Utilisateur.is_active == True).scalar() or 0,  # noqa: E712
-            "admins": 0, "rh": 0, "employes": _count(role="employe"),
+            "admins": 0, "rh": 0,
+            "employes": salaries, "externes": externes,
         }
     return {
         "total": _count(),
         "actifs": _count(is_active=True),
         "admins": _count(role="admin"),
         "rh": _count(role="rh"),
-        "employes": _count(role="employe"),
+        "employes": salaries,
+        "externes": externes,
     }
 
 
