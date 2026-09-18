@@ -81,6 +81,9 @@ class _FauxNextcloud:
                 cree = True
         return cree
 
+    def _existe(self, cfg, chemin):
+        return chemin in self.dossiers
+
     def _deplacer(self, cfg, source, destination):
         self.dossiers = [
             destination + d[len(source):] if d == source or d.startswith(source + "/") else d
@@ -104,15 +107,18 @@ class _FauxNextcloud:
 
         cfg = nc.Config(url="https://x", utilisateur="u", mot_de_passe="p",
                         racine="6.10 RH Admin web")
-        origines = (nc.lister, nc.assurer_dossier, nc.deplacer)
+        origines = (nc.lister, nc.assurer_dossier, nc.deplacer, nc.existe, nc.config)
         nc.lister, nc.assurer_dossier, nc.deplacer = (
             self._lister, self._assurer, self._deplacer)
+        nc.existe = self._existe
+        nc.config = lambda db, obligatoire=True: cfg
         de.nextcloud = nc
         try:
             self.listages_racine = 0
             return fonction(_Db(), cfg)
         finally:
-            nc.lister, nc.assurer_dossier, nc.deplacer = origines
+            (nc.lister, nc.assurer_dossier, nc.deplacer,
+             nc.existe, nc.config) = origines
 
 
 def main():
@@ -274,6 +280,32 @@ def main():
     restants = [d for d in faux.dossiers if d.startswith("ARRA-I001 - ") and "/" not in d]
     verifier(restants == ["ARRA-I001 - BENALI-IDRISSI Sara"],
              "un seul dossier, au nouveau nom", str(restants))
+
+    print("\n— 16. Supprimer un compte ARCHIVE le dossier, ne le détruit pas —")
+    # ⚠️ Contrats et bulletins doivent être conservés des années : une
+    # suppression de compte ne doit pas pouvoir les emporter.
+    faux2 = _FauxNextcloud()
+    parti = _fiche("ARRA-I009", "RACHIDI", "Hind", "actif_interne")
+    faux2.executer(de.creer_dossiers_manquants, [parti])
+    avant = [d for d in faux2.dossiers if "/" not in d]
+    verifier(avant == ["ARRA-I009 - RACHIDI Hind"], "dossier créé", str(avant))
+
+    faux2.executer(lambda db, cfg: de.archiver(db, parti), [parti])
+    racine = sorted(d for d in faux2.dossiers if "/" not in d)
+    verifier(racine == ["_Archives"], "plus rien à la racine hors _Archives", str(racine))
+    verifier("_Archives/ARRA-I009 - RACHIDI Hind" in faux2.dossiers,
+             "le dossier est SOUS _Archives")
+    verifier("_Archives/ARRA-I009 - RACHIDI Hind/Partagé" in faux2.dossiers,
+             "les documents partent avec lui — rien n'est détruit")
+
+    print("\n— 17. Réarchiver n'écrase pas la première archive —")
+    # Compte recréé puis resupprimé : sans suffixe, le MOVE échouerait ou
+    # écraserait, et les premiers documents seraient perdus.
+    faux2.executer(de.creer_dossiers_manquants, [parti])
+    faux2.executer(lambda db, cfg: de.archiver(db, parti), [parti])
+    archives = sorted(d for d in faux2.dossiers
+                      if d.startswith("_Archives/") and d.count("/") == 1)
+    verifier(len(archives) == 2, "deux archives distinctes conservées", str(archives))
 
     print()
     if ECHECS:

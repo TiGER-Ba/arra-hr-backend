@@ -1447,6 +1447,11 @@ def supprimer_utilisateur(
 
     libelle = f"{user.email} ({user.role})"
     cible_id = user.id
+    # ⚠️ AVANT la purge : le dossier est nommé d'après la fiche, qui va
+    # disparaître. Archiver plutôt que supprimer — contrats et bulletins doivent
+    # être conservés des années, et la suppression d'un compte est trop facile
+    # pour emporter ça avec elle. Jamais bloquant.
+    archive = _dossier.archiver(db, user.employe) if user.employe else None
     try:
         # Un compte peut cumuler une fiche salarié ET une fiche RH (rh/admin salarié)
         if user.employe:
@@ -1457,6 +1462,7 @@ def supprimer_utilisateur(
         log_action(
             db, current_user, "user.delete",
             cible_type="utilisateur", cible_id=cible_id, cible_libelle=libelle,
+            details=f"documents archivés dans {archive}" if archive else None,
         )
         db.commit()
     except IntegrityError:

@@ -32,6 +32,10 @@ ADMINISTRATIF = "Administratif"
 
 SOUS_DOSSIERS = (PARTAGE, ADMINISTRATIF)
 
+#: Dossiers des comptes supprimés. Le tiret bas le fait remonter en tête de la
+#: liste Nextcloud, nettement séparé des dossiers des personnes en poste.
+ARCHIVES = "_Archives"
+
 # Nextcloud accepte beaucoup, mais ces caractères cassent les chemins WebDAV ou
 # la synchronisation de bureau sous Windows.
 _INTERDITS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -248,3 +252,50 @@ def creer_dossiers_manquants(db, cfg: nextcloud.Config) -> dict:
 
     rapport["total"] = len(employes)
     return rapport
+
+
+def archiver(db, employe: Employe) -> str | None:
+    """Déplace le dossier d'un compte supprimé dans `_Archives/`. **Ne lève jamais.**
+
+    ⚠️ On n'efface PAS les fichiers. Un contrat de travail et des bulletins de
+    paie doivent être conservés des années : les détruire d'un clic dans une
+    liste supprimerait des pièces que l'employeur est tenu de garder, et la
+    suppression d'un compte est trop facile pour emporter ça avec elle.
+
+    Mais les laisser à la racine serait pire à l'usage : au bout de deux ans le
+    drive contient des dossiers de gens partis, indiscernables des actifs, et
+    l'application ne les connaît plus — ses lignes ont été supprimées avec le
+    compte. L'archive sépare les deux sans rien perdre.
+
+    Rend le chemin d'archive, ou None si rien n'a été fait.
+    """
+    import logging
+
+    if employe is None:
+        return None
+    try:
+        cfg = nextcloud.config(db, obligatoire=False)
+        if cfg is None:
+            return None
+        actuel = dossier_existant(cfg, employe)
+        if not actuel:
+            return None
+
+        nextcloud.assurer_dossier(cfg, ARCHIVES)
+        # Deux personnes ne partagent pas de matricule, mais un dossier
+        # réarchivé (compte recréé puis resupprimé) ne doit pas écraser le
+        # premier : le MOVE refuserait, et les documents seraient perdus.
+        destination = f"{ARCHIVES}/{actuel}"
+        compteur = 1
+        while nextcloud.existe(cfg, destination):
+            destination = f"{ARCHIVES}/{actuel} ({compteur})"
+            compteur += 1
+
+        nextcloud.deplacer(cfg, actuel, destination)
+        return destination
+    except Exception as e:  # noqa: BLE001 — jamais bloquant, par conception
+        logging.getLogger(__name__).warning(
+            "Dossier Nextcloud non archivé pour %s : %s",
+            getattr(employe, "matricule", "?"), e,
+        )
+        return None
