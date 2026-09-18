@@ -588,8 +588,13 @@ def rejeter_feuille(
 
 # ─── RH : récapitulatif + export ─────────────────────────────────────────────
 
-def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
-    """Une ligne par salarié : compteurs du mois, en JOURS (demi-journées incluses)."""
+def _rh_rows(db: Session, annee: int, mois: int, entite: str | None = None) -> list[dict]:
+    """Une ligne par salarié : compteurs du mois, en JOURS (demi-journées incluses).
+
+    `entite` (« MA » / « FR ») restreint aux salariés de cette entité. Utile
+    parce que les calendriers de fériés diffèrent : un récapitulatif mêlant les
+    deux compare des taux de complétion calculés sur des bases différentes.
+    """
     debut, fin, _ = _mois_bornes(annee, mois)
     weekdays = _weekdays(annee, mois)
 
@@ -616,7 +621,10 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
     }
 
     rows = []
-    for emp in db.query(Employe).all():
+    requete = db.query(Employe)
+    if entite:
+        requete = requete.filter(Employe.entite == entite)
+    for emp in requete.all():
         pays = pays_employe(emp)
         feries = feries_par_pays.get(pays, {})
         f_emp = feuilles.get(emp.id)
@@ -681,14 +689,17 @@ def _rh_rows(db: Session, annee: int, mois: int) -> list[dict]:
 @router.get("/recap")
 def recap(
     annee: int, mois: int,
+    entite: str | None = None,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
+    from app.services.devises import normaliser_entite
+
     _valider_periode(annee, mois)
     return {
         "annee": annee, "mois": mois,
         "jours_ouvres": len(_weekdays(annee, mois)),
-        "lignes": _rh_rows(db, annee, mois),
+        "lignes": _rh_rows(db, annee, mois, normaliser_entite(entite)),
     }
 
 
@@ -770,18 +781,28 @@ def cra_projet(
 @router.get("/cra-tous")
 def cra_tous(
     annee: int, mois: int,
+    entite: str | None = None,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
     """Archive ZIP des CRA de tous les salariés du mois (un PDF par salarié)."""
     import zipfile
 
+    from app.services.devises import normaliser_entite
+
+    code = normaliser_entite(entite)
+
     from app.services.cra import generer_pdf_cra, nom_fichier_cra
 
     _valider_periode(annee, mois)
     tampon = io.BytesIO()
     with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as archive:
-        for emp in db.query(Employe).all():
+        # Même filtre que le récapitulatif : « tous » veut dire tous ceux que
+        # le RH a sous les yeux, pas les deux entités mélangées dans une archive.
+        requete = db.query(Employe)
+        if code:
+            requete = requete.filter(Employe.entite == code)
+        for emp in requete.all():
             try:
                 archive.writestr(nom_fichier_cra(emp, annee, mois), generer_pdf_cra(db, emp, annee, mois))
             except Exception as e:  # noqa: BLE001
@@ -990,14 +1011,21 @@ def supprimer_ferie(
 @router.get("/export")
 def export_paie(
     annee: int, mois: int,
+    entite: str | None = None,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
+    from app.services.devises import normaliser_entite
+
     _valider_periode(annee, mois)
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-    rows = _rh_rows(db, annee, mois)
+    # ⚠️ L'export suit le filtre affiché : envoyer au gestionnaire de paie
+    # marocain un fichier contenant les salariés français serait une fuite de
+    # données autant qu'une erreur.
+    code = normaliser_entite(entite)
+    rows = _rh_rows(db, annee, mois, code)
     wb = Workbook()
     ws = wb.active
     ws.title = f"{MOIS_ABBR[mois]}-{str(annee)[2:]}"

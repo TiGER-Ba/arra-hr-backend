@@ -49,7 +49,9 @@ VALID_ROLES = {"employe", "rh", "admin"}
 # Les statuts vivent dans services/statuts.py (cycle de vie + motifs de fin).
 # Nature de l'engagement. Elle n'est PAS stockée : elle se déduit du type de
 # contrat, ce qui évite qu'une colonne « externe » et le contrat se contredisent.
-CONTRATS_INTERNES = ("CDI", "CDD", "Stage")
+# ⚠️ « CDIC » (CDI de chantier) n'a PAS de modèle de contrat : il est proposé
+# à la saisie mais rien ne se génère — comme « Stage ». Cf. contrats.MODELES.
+CONTRATS_INTERNES = ("CDI", "CDIC", "CDD", "Stage")
 CONTRATS_EXTERNES = ("Freelance", "Prestataire")
 VALID_CONTRATS = set(CONTRATS_INTERNES) | set(CONTRATS_EXTERNES)
 
@@ -727,10 +729,22 @@ def liste_utilisateurs(
     role: Optional[str] = None,
     q: Optional[str] = None,
     actif: Optional[bool] = None,
+    entite: Optional[str] = None,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
+    from app.services.devises import normaliser_entite
+
     query = db.query(Utilisateur)
+    # ⚠️ Filtre sur l'entité de la FICHE, via une jointure : un compte sans
+    # fiche (rh/admin non salarié) n'a pas d'entité et disparaît donc du
+    # résultat — ce qui est correct, « les salariés du Maroc » ne le comprend
+    # pas.
+    code = normaliser_entite(entite)
+    if code:
+        query = query.join(Employe, Employe.utilisateur_id == Utilisateur.id).filter(
+            Employe.entite == code
+        )
     # Un RH ne voit/gère que les employés
     if current_user.role != "admin":
         query = query.filter(Utilisateur.role == "employe")

@@ -198,6 +198,34 @@ def main():
 
     db.close()
 
+    print("\n— 9. Filtre par entité —")
+    from app.services.devises import ENTITES, normaliser_entite
+
+    verifier(normaliser_entite("ma") == "MA", "la casse est normalisée")
+    verifier(normaliser_entite("FR") == "FR", "code déjà correct conservé")
+    verifier(normaliser_entite("") is None, "vide = toutes les entités")
+    verifier(normaliser_entite(None) is None, "absent = toutes les entités")
+    # ⚠️ Un filtre mal orthographié qui viderait la liste ferait croire à un
+    # effectif nul. Mieux vaut tout montrer que faire disparaître des salariés.
+    verifier(normaliser_entite("BE") is None, "code inconnu → aucun filtre, pas une liste vide")
+    verifier(normaliser_entite("MA; DROP") is None, "valeur fabriquée rejetée")
+    verifier(set(ENTITES) == {"MA", "FR"}, "deux entités connues", str(ENTITES))
+
+    print("\n— 10. Le filtre traverse jusqu'aux exports —")
+    import inspect
+
+    from app.routers import pointage, rh as routeur_rh, users as routeur_users
+    for fonction in (routeur_users.liste_utilisateurs, routeur_rh.liste_demandes,
+                     pointage.recap, pointage.export_paie, pointage.cra_tous):
+        verifier("entite" in inspect.signature(fonction).parameters,
+                 f"{fonction.__name__} accepte le filtre")
+    # L'export et l'archive doivent le PROPAGER, pas seulement l'accepter :
+    # envoyer au gestionnaire de paie marocain un fichier contenant les
+    # salariés français serait une fuite autant qu'une erreur.
+    for fonction in (pointage.export_paie, pointage.cra_tous):
+        verifier("normaliser_entite" in inspect.getsource(fonction),
+                 f"{fonction.__name__} applique réellement le filtre")
+
     print()
     if ECHECS:
         print(f"RESULTAT : {len(ECHECS)} ECHEC(S) — " + " · ".join(ECHECS))

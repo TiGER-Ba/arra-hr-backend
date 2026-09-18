@@ -69,3 +69,21 @@ def totaliser_par_entite(employes, valeur=lambda e: float(e.salaire_base)) -> li
         for cle in ("MA", "FR")
         if cle in totaux
     ]
+
+
+# ── Filtre par entité ────────────────────────────────────────────────────────
+
+ENTITES = ("MA", "FR")
+
+LIBELLES_ENTITE = {"MA": "ARRA Maroc", "FR": "ARRA France"}
+
+
+def normaliser_entite(valeur: str | None) -> str | None:
+    """« ma » → « MA ». Rend None pour « toutes les entités ».
+
+    ⚠️ Une valeur inconnue rend **None** plutôt que de filtrer sur rien : un
+    filtre mal orthographié qui viderait la liste ferait croire à un effectif
+    vide. Mieux vaut montrer tout le monde que faire disparaître des salariés.
+    """
+    code = (valeur or "").strip().upper()
+    return code if code in ENTITES else None

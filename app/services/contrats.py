@@ -21,6 +21,9 @@ from app.models.employee import Employe
 from app.models.template import Template as TemplateModel
 
 # Type de contrat → type de modèle en base
+# ⚠️ Un type absent d'ici est saisissable mais ne génère aucun contrat : le
+# bouton est désactivé, motif en infobulle. C'est le cas de « Stage » et de
+# « CDIC » (CDI de chantier), dont les modèles n'ont pas été fournis.
 MODELES = {
     "CDI": "contrat_cdi",
     "CDD": "contrat_cdd",

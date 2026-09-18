@@ -53,16 +53,26 @@ def liste_demandes(
     statut: str | None = None,
     type: str | None = None,
     search: str | None = None,
+    entite: str | None = None,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
+    from app.services.devises import normaliser_entite
+
     q = db.query(Demande)
+    code = normaliser_entite(entite)
+    if code:
+        # Jointure explicite : `search` en pose une autre plus bas, et deux
+        # `join(Demande.employe)` sur la même requête lèveraient une erreur.
+        q = q.join(Employe, Demande.employe_id == Employe.id).filter(Employe.entite == code)
     if statut:
         q = q.filter(Demande.statut == statut)
     if type:
         q = q.filter(Demande.type == type)
     if search:
-        q = q.join(Demande.employe).join(Employe.utilisateur).filter(
+        if not code:
+            q = q.join(Employe, Demande.employe_id == Employe.id)
+        q = q.join(Utilisateur, Employe.utilisateur_id == Utilisateur.id).filter(
             Utilisateur.nom.ilike(f"%{search}%")
         )
     demandes = q.order_by(Demande.created_at.desc()).all()
