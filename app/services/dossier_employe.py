@@ -87,7 +87,18 @@ def _prefixe(employe: Employe) -> str:
     return f"{_nettoyer(employe.matricule) or f'employe-{employe.id}'}{SEPARATEUR}"
 
 
-def dossier_existant(cfg: nextcloud.Config, employe: Employe) -> str | None:
+def dossiers_racine(cfg: nextcloud.Config) -> list[str]:
+    """Noms des dossiers présents à la racine, lus **une seule fois**.
+
+    À passer à `dossier_existant` quand on traite plusieurs salariés d'affilée :
+    sans cela, chacun relancerait un PROPFIND de toute la racine — sur trente
+    fiches, trente listages complets du drive.
+    """
+    return [e["nom"] for e in nextcloud.lister(cfg, "") if e["dossier"]]
+
+
+def dossier_existant(cfg: nextcloud.Config, employe: Employe,
+                     connus: list[str] | None = None) -> str | None:
     """Dossier du salarié déjà présent, retrouvé par **préfixe de matricule**.
 
     ⚠️ On ne cherche pas le nom complet : si la personne se marie et change de
@@ -97,17 +108,29 @@ def dossier_existant(cfg: nextcloud.Config, employe: Employe) -> str | None:
     """
     prefixe = _prefixe(employe)
     exact = nom_dossier(employe)
-    candidats = [
-        e["nom"] for e in nextcloud.lister(cfg, "")
-        if e["dossier"] and e["nom"].startswith(prefixe)
-    ]
+    noms = connus if connus is not None else dossiers_racine(cfg)
+    candidats = [n for n in noms if n.startswith(prefixe)]
     if not candidats:
         return None
     # Le nom exact d'abord : s'il existe, rien à renommer.
     return exact if exact in candidats else sorted(candidats)[0]
 
 
-def assurer_dossier(cfg: nextcloud.Config, employe: Employe) -> str:
+def merite_dossier(statut: str | None) -> bool:
+    """Un dossier n'est créé que pour une fiche qui recevra des documents.
+
+    Un **brouillon** est une saisie en cours et un **désistement** n'est jamais
+    venu : leur ouvrir un dossier remplirait le drive de coquilles vides que
+    personne ne nettoierait. Une fiche **quittée** en garde un — ses documents
+    existent et doivent rester accessibles.
+    """
+    from app.services import statuts as S
+
+    return statut not in (S.BROUILLON, S.DESISTEMENT)
+
+
+def assurer_dossier(cfg: nextcloud.Config, employe: Employe,
+                    connus: list[str] | None = None) -> str:
     """Dossier du salarié, créé au besoin, avec ses deux sous-dossiers.
 
     Si le nom a changé (mariage, correction d'orthographe), le dossier est
@@ -116,7 +139,7 @@ def assurer_dossier(cfg: nextcloud.Config, employe: Employe) -> str:
     périmé vaut mieux qu'un dépôt refusé.
     """
     attendu = nom_dossier(employe)
-    actuel = dossier_existant(cfg, employe)
+    actuel = dossier_existant(cfg, employe, connus)
 
     if actuel and actuel != attendu:
         try:
@@ -157,3 +180,71 @@ def nom_disponible(cfg: nextcloud.Config, dossier: str, visible_employe: bool,
         candidat = f"{tige}_{compteur}{suffixe}"
         compteur += 1
     return candidat
+
+
+# ── Création automatique ─────────────────────────────────────────────────────
+
+def preparer(db, employe: Employe) -> str | None:
+    """Crée (ou renomme) le dossier du salarié. **Ne lève jamais.**
+
+    Appelée depuis la création et la modification d'un compte. Le dossier est un
+    confort : le comptable et le RH trouvent une place prête au lieu de devoir
+    la fabriquer à la main avec le nom exact. Ce n'est pas une raison de refuser
+    une embauche parce qu'un serveur de fichiers ne répond pas — d'où le
+    silence en cas d'échec. Le dossier sera créé au premier dépôt, comme avant.
+
+    Rend le nom du dossier, ou None si rien n'a été fait.
+    """
+    import logging
+
+    if employe is None or not merite_dossier(getattr(employe, "statut", None)):
+        return None
+    try:
+        cfg = nextcloud.config(db, obligatoire=False)
+        if cfg is None:
+            return None
+        return assurer_dossier(cfg, employe)
+    except Exception as e:  # noqa: BLE001 — jamais bloquant, par conception
+        logging.getLogger(__name__).warning(
+            "Dossier Nextcloud non créé pour %s : %s",
+            getattr(employe, "matricule", "?"), e,
+        )
+        return None
+
+
+def creer_dossiers_manquants(db, cfg: nextcloud.Config) -> dict:
+    """Ouvre le dossier des salariés qui n'en ont pas encore.
+
+    Sert au rattrapage : les comptes créés **avant** le branchement de Nextcloud
+    n'ont pas de dossier, et le comptable qui veut y déposer un bulletin n'a
+    nulle part où le mettre.
+
+    ⚠️ La racine n'est listée **qu'une fois** : la relire par salarié
+    multiplierait les allers-retours par l'effectif. Idempotent — un dossier
+    déjà là n'est pas recréé, et relancer l'opération ne coûte qu'un listage.
+    """
+    from app.models.employee import Employe as _Employe
+
+    connus = dossiers_racine(cfg)
+    rapport = {"crees": [], "existants": 0, "ignores": [], "echecs": []}
+
+    employes = db.query(_Employe).order_by(_Employe.matricule).all()
+    for emp in employes:
+        if not merite_dossier(emp.statut):
+            # Brouillon ou désistement : pas de coquille vide dans le drive.
+            rapport["ignores"].append(emp.matricule)
+            continue
+        deja = dossier_existant(cfg, emp, connus)
+        try:
+            nom = assurer_dossier(cfg, emp, connus)
+        except nextcloud.NextcloudIndisponible as e:
+            rapport["echecs"].append({"matricule": emp.matricule, "raison": str(e)})
+            continue
+        if deja:
+            rapport["existants"] += 1
+        else:
+            rapport["crees"].append(nom)
+            connus.append(nom)   # évite de le relister au salarié suivant
+
+    rapport["total"] = len(employes)
+    return rapport

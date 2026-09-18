@@ -39,6 +39,7 @@ from app.models.user import Utilisateur
 from app.services.audit import log_action
 from app.services.auth import get_current_user, get_password_hash, require_rh, verify_password
 from app.services.email import send_email
+from app.services import dossier_employe as _dossier
 from app.services import statuts as _statuts
 from app.services.soldes import initialiser_soldes_par_defaut
 
@@ -1049,6 +1050,11 @@ def creer_utilisateur(
         # Dossier clos dès la création (désistement enregistré « pour l'avenir ») :
         # la fiche reste consultable, le compte ne s'ouvre pas.
         user.is_active = _statuts.compte_doit_etre_actif(emp.statut)
+        # ⚠️ Dossier Nextcloud ouvert d'emblée, pour que le comptable et le RH
+        # trouvent une place prête au lieu de la fabriquer à la main avec le
+        # nom exact. Jamais bloquant : une embauche ne se refuse pas parce
+        # qu'un serveur de fichiers ne répond pas.
+        _dossier.preparer(db, emp)
     if payload.role == "rh":
         db.add(RH(utilisateur_id=user.id, service=payload.service or "Ressources Humaines"))
 
@@ -1198,6 +1204,14 @@ def modifier_utilisateur(
         assurer_valeur(db, CATEGORIE_NATIONALITE, payload.nationalite)
         assurer_valeur(db, CATEGORIE_POSTE, payload.poste)
 
+        # ⚠️ Deux cas à rattraper ici, et pas seulement au prochain dépôt :
+        #   - sortie de brouillon → le dossier n'existait pas encore ;
+        #   - changement de nom → le dossier porte l'ancien, et resterait ainsi
+        #     des mois si on attendait qu'un document soit déposé.
+        if payload.nom is not None or payload.prenom is not None or payload.statut is not None:
+            db.flush()   # le dossier doit être nommé d'après les valeurs à jour
+            _dossier.preparer(db, e)
+
     log_action(
         db, current_user, "user.update",
         cible_type="utilisateur", cible_id=user.id,
@@ -1333,6 +1347,7 @@ def ajouter_fiche_salarie(
     if emp.poste:
         assurer_valeur(db, CATEGORIE_POSTE, emp.poste)
     user.is_active = _statuts.compte_doit_etre_actif(emp.statut)
+    _dossier.preparer(db, emp)
     log_action(
         db, current_user, "user.add_employe",
         cible_type="utilisateur", cible_id=user.id,

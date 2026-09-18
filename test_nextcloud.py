@@ -33,6 +33,88 @@ def refuse(fn, libelle):
         verifier(False, libelle, f"mauvaise erreur : {type(e).__name__}")
 
 
+class _Utilisateur:
+    def __init__(self, nom, prenom):
+        self.nom, self.prenom = nom, prenom
+
+
+class _Fiche:
+    def __init__(self, matricule, nom, prenom, statut):
+        self.matricule, self.statut, self.id = matricule, statut, id(self)
+        self.utilisateur = _Utilisateur(nom, prenom)
+
+
+def _fiche(matricule, nom, prenom, statut):
+    return _Fiche(matricule, nom, prenom, statut)
+
+
+class _FauxNextcloud:
+    """Nextcloud en mémoire : vérifie les APPELS, sans serveur.
+
+    Compte les listages de la racine — c'est ce qui distingue un rattrapage
+    efficace d'un qui relit tout le drive à chaque salarié.
+    """
+
+    def __init__(self):
+        self.dossiers: list[str] = []
+        self.listages_racine = 0
+        self.cfg = None
+
+    def _lister(self, cfg, chemin=""):
+        if chemin == "":
+            self.listages_racine += 1
+            return [{"nom": d, "dossier": True} for d in self.dossiers if "/" not in d]
+        prefixe = chemin + "/"
+        return [{"nom": d[len(prefixe):], "dossier": True}
+                for d in self.dossiers if d.startswith(prefixe)]
+
+    def _assurer(self, cfg, chemin=""):
+        # Comme le vrai MKCOL récursif : chaque niveau intermédiaire est créé.
+        # Sans cela le parent n'existerait pas à la racine, et le rattrapage
+        # croirait devoir tout recréer au passage suivant.
+        segments = [s for s in chemin.split("/") if s]
+        cree = False
+        for i in range(1, len(segments) + 1):
+            niveau = "/".join(segments[:i])
+            if niveau not in self.dossiers:
+                self.dossiers.append(niveau)
+                cree = True
+        return cree
+
+    def _deplacer(self, cfg, source, destination):
+        self.dossiers = [
+            destination + d[len(source):] if d == source or d.startswith(source + "/") else d
+            for d in self.dossiers
+        ]
+
+    def executer(self, fonction, fiches):
+        """Lance `fonction(db, cfg)` avec ce faux serveur en place."""
+        from app.services import dossier_employe as de
+        from app.services import nextcloud as nc
+
+        class _Db:
+            def query(self, _modele):
+                return self
+
+            def order_by(self, _col):
+                return self
+
+            def all(self):
+                return fiches
+
+        cfg = nc.Config(url="https://x", utilisateur="u", mot_de_passe="p",
+                        racine="6.10 RH Admin web")
+        origines = (nc.lister, nc.assurer_dossier, nc.deplacer)
+        nc.lister, nc.assurer_dossier, nc.deplacer = (
+            self._lister, self._assurer, self._deplacer)
+        de.nextcloud = nc
+        try:
+            self.listages_racine = 0
+            return fonction(_Db(), cfg)
+        finally:
+            nc.lister, nc.assurer_dossier, nc.deplacer = origines
+
+
 def main():
     from app.services import dossier_employe as de
     from app.services import nextcloud as nc
@@ -142,6 +224,56 @@ def main():
     from app.services import parametrage
     source = inspect.getsource(parametrage.set_param_secret)
     verifier("chiffrer" in source, "set_param_secret chiffre systématiquement")
+
+    print("\n— 11. Qui mérite un dossier —")
+    # Ouvrir un dossier à un brouillon ou à quelqu'un qui n'est jamais venu
+    # remplirait le drive de coquilles vides que personne ne nettoierait.
+    verifier(not de.merite_dossier("brouillon"), "brouillon → pas de dossier")
+    verifier(not de.merite_dossier("desistement"), "désistement → pas de dossier")
+    verifier(de.merite_dossier("actif_interne"), "actif interne → dossier")
+    verifier(de.merite_dossier("actif_production"), "actif production → dossier")
+    # Une personne partie garde ses documents : son dossier doit rester.
+    verifier(de.merite_dossier("quitte"), "quitté → dossier conservé")
+
+    print("\n— 12. Rattrapage des comptes existants —")
+    faux = _FauxNextcloud()
+    fiches = [
+        _fiche("ARRA-I001", "BENALI", "Sara", "actif_interne"),
+        _fiche("ARRA-E002", "CHAKIR", "Omar", "actif_production"),
+        _fiche("ARRA-I003", "TAZI", "Nadia", "brouillon"),
+        _fiche("ARRA-I004", "FASSI", "Youssef", "quitte"),
+    ]
+    rapport = faux.executer(de.creer_dossiers_manquants, fiches)
+    verifier(len(rapport["crees"]) == 3, "3 dossiers créés (le brouillon est ignoré)",
+             str(rapport["crees"]))
+    verifier(rapport["ignores"] == ["ARRA-I003"], "le brouillon est listé comme ignoré",
+             str(rapport["ignores"]))
+    verifier(all(f"{n}/Partagé" in faux.dossiers and f"{n}/Administratif" in faux.dossiers
+                 for n in rapport["crees"]),
+             "chaque dossier reçoit ses deux sous-dossiers")
+
+    print("\n— 13. Relancer le rattrapage ne recrée rien —")
+    avant = len(faux.dossiers)
+    rapport2 = faux.executer(de.creer_dossiers_manquants, fiches)
+    verifier(rapport2["crees"] == [], "aucun dossier créé au second passage",
+             str(rapport2["crees"]))
+    verifier(rapport2["existants"] == 3, "les 3 sont reconnus comme présents",
+             str(rapport2["existants"]))
+    verifier(len(faux.dossiers) == avant, "aucun dossier en double sur le drive")
+
+    print("\n— 14. La racine n'est listée qu'UNE fois pour tout l'effectif —")
+    # Sans cela, chaque salarié relancerait un PROPFIND complet du drive.
+    verifier(faux.listages_racine == 1,
+             "un seul listage de la racine, quel que soit l'effectif",
+             f"{faux.listages_racine} listage(s)")
+
+    print("\n— 15. Un nom qui change RENOMME au lieu de dupliquer —")
+    # Sinon les documents de la personne se répartiraient sur deux dossiers.
+    fiches[0].utilisateur.nom = "BENALI-IDRISSI"
+    faux.executer(de.creer_dossiers_manquants, fiches)
+    restants = [d for d in faux.dossiers if d.startswith("ARRA-I001 - ") and "/" not in d]
+    verifier(restants == ["ARRA-I001 - BENALI-IDRISSI Sara"],
+             "un seul dossier, au nouveau nom", str(restants))
 
     print()
     if ECHECS:

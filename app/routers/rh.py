@@ -1028,6 +1028,46 @@ def save_parametrage_nextcloud(
     return {"message": "Stockage enregistré"}
 
 
+@router.post("/parametrage/nextcloud/dossiers")
+def creer_dossiers_nextcloud(
+    current_user: Utilisateur = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Ouvre le dossier des salariés qui n'en ont pas encore (rattrapage).
+
+    Les comptes créés **avant** le branchement de Nextcloud n'ont pas de
+    dossier : le comptable qui veut y déposer un bulletin n'a nulle part où le
+    mettre, et devrait le créer à la main avec le nom exact. Cette action les
+    rattrape tous d'un coup.
+
+    Idempotent : un dossier déjà présent n'est pas recréé. Les brouillons et
+    les désistements sont ignorés — pas de coquilles vides dans le drive.
+    """
+    from app.services import dossier_employe as _dossier
+    from app.services import nextcloud as nc
+    from app.services.secrets import SecretIllisible
+
+    try:
+        cfg = nc.config(db)
+        rapport = _dossier.creer_dossiers_manquants(db, cfg)
+    except (nc.NonConfigure, nc.NextcloudIndisponible, SecretIllisible) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    log_action(db, current_user, "nextcloud.dossiers",
+               cible_type="parametrage",
+               cible_libelle=f"{len(rapport['crees'])} dossier(s) créé(s)")
+    db.commit()
+
+    crees, echecs = len(rapport["crees"]), len(rapport["echecs"])
+    morceaux = [f"{crees} dossier(s) créé(s)", f"{rapport['existants']} déjà présent(s)"]
+    if rapport["ignores"]:
+        morceaux.append(f"{len(rapport['ignores'])} ignoré(s) (brouillon/désistement)")
+    if echecs:
+        morceaux.append(f"{echecs} en échec")
+    rapport["message"] = " · ".join(morceaux)
+    return rapport
+
+
 @router.post("/parametrage/smtp")
 def save_parametrage_smtp(
     body: SMTPParams,
