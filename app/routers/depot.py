@@ -74,38 +74,14 @@ async def upload_document(
     contenu = read_upload_limited(fichier, settings.MAX_UPLOAD_MB)
     safe_name = safe_filename(fichier.filename)
 
-    cfg = nextcloud.config(db, obligatoire=False)
-    if cfg:
-        # ⚠️ Le SOUS-DOSSIER porte la visibilité : un document non visible part
-        # dans « Administratif », que le salarié ne voit pas — y compris pour
-        # un RH qui parcourt le drive directement.
-        try:
-            dossier = dossier_employe.assurer_dossier(cfg, emp)
-            nom = dossier_employe.nom_disponible(cfg, dossier, visible_employe, safe_name)
-            relatif = nextcloud.envoyer(
-                cfg,
-                dossier_employe.chemin_document(dossier, visible_employe, nom),
-                contenu,
-                fichier.content_type,
-            )
-        except nextcloud.NextcloudIndisponible as e:
-            # Échouer AVANT d'écrire en base : une ligne sans fichier derrière
-            # afficherait un document impossible à ouvrir.
-            raise HTTPException(status_code=503, detail=str(e))
-        dest_path = stockage.chemin_distant(relatif)
-    else:
-        emp_dir = safe_join(DEPOT_DIR, f"employe_{safe_filename(emp.matricule, 'inconnu')}")
-        os.makedirs(emp_dir, exist_ok=True)
-
-        base, ext = os.path.splitext(safe_name)
-        counter = 1
-        dest_path = safe_join(emp_dir, safe_name)
-        while os.path.exists(dest_path):
-            dest_path = safe_join(emp_dir, f"{base}_{counter}{ext}")
-            counter += 1
-
-        with open(dest_path, "wb") as f:
-            f.write(contenu)
+    # Nextcloud si branché, disque sinon — l'aiguillage vit dans `stockage`.
+    try:
+        dest_path = stockage.deposer(db, emp, contenu, safe_name,
+                                     fichier.content_type, visible_employe)
+    except nextcloud.NextcloudIndisponible as e:
+        # Échouer AVANT d'écrire en base : une ligne sans fichier derrière
+        # afficherait un document impossible à ouvrir.
+        raise HTTPException(status_code=503, detail=str(e))
 
     doc = DepotDocument(
         employe_id=emp.id,

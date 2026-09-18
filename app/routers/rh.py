@@ -22,6 +22,7 @@ from app.schemas.demande import DemandeOut, DemandeRejeter
 from app.services.auth import require_admin, require_rh
 from app.services.audit import log_action
 from app.services.notifications import notifier
+from app.services.demande_service import se_genere
 from app.services.pdf_generator import generate_pdf
 from app.services.profil import profil_rh
 from app.services.soldes import appliquer_deduction_sur_validation
@@ -39,6 +40,9 @@ def _enrich_demande(d: Demande) -> dict:
     if d.employe and d.employe.utilisateur:
         out["nom_employe"] = d.employe.utilisateur.nom
         out["matricule"] = d.employe.matricule
+    # Le bulletin de paie vient du comptable : l'écran de validation doit
+    # proposer un dépôt, pas une génération. La règle vit côté serveur.
+    out["se_genere"] = se_genere(d.type)
     return out
 
 
@@ -135,6 +139,13 @@ def valider_demande(
 
     rh = _get_rh(current_user, db)
 
+    # ⚠️ Certains types ne se génèrent PAS : le bulletin de paie est établi par
+    # le comptable. Si le document est déjà dans le dossier du salarié, la
+    # demande se clôt en s'y rattachant ; sinon on renvoie le RH vers le dépôt
+    # plutôt que de fabriquer un document concurrent de celui du comptable.
+    if not se_genere(demande.type):
+        return _cloturer_par_depot(db, demande, current_user)
+
     try:
         document = generate_pdf(db=db, demande_id=demande_id, rh_id=rh.id)
     except (ValueError, RuntimeError) as e:
@@ -162,6 +173,125 @@ def valider_demande(
         "document_id": document.id,
         "chemin_fichier": document.chemin_fichier,
         "demande_id": demande_id,
+    }
+
+
+def _cloturer_par_depot(db: Session, demande: Demande, current_user: Utilisateur) -> dict:
+    """Clôt une demande non générée en la rattachant au document déposé.
+
+    Le bulletin existe peut-être déjà : le comptable l'a transmis avant que le
+    salarié le réclame. Dans ce cas il n'y a rien à faire d'autre que fermer la
+    demande. Sinon, on le dit clairement — la suite passe par le dépôt.
+    """
+    from app.services.demande_service import _chercher_bulletin_depot
+
+    depot = _chercher_bulletin_depot(db, demande.employe_id, demande.donnees_collectees or {})
+    if not depot:
+        raise HTTPException(
+            status_code=409,
+            detail="Le bulletin n'est pas encore dans le dossier du salarié. "
+                   "Déposez celui transmis par le comptable : la demande sera "
+                   "clôturée automatiquement.",
+        )
+
+    demande.statut = "validee"
+    if demande.employe and demande.employe.utilisateur:
+        notifier(
+            db=db,
+            utilisateur_id=demande.employe.utilisateur.id,
+            type="demande_validee",
+            titre="Document disponible",
+            message=f"Votre {demande.type.replace('_', ' ')} est disponible dans vos documents.",
+            lien="/employe/mes-documents",
+        )
+    db.commit()
+    return {
+        "message": "Demande clôturée : le document déposé a été rattaché.",
+        "depot_document_id": depot.id,
+        "demande_id": demande.id,
+        "genere": False,
+    }
+
+
+@router.post("/demandes/{demande_id}/deposer")
+async def deposer_document_demande(
+    demande_id: int,
+    fichier: UploadFile = FastAPIFile(...),
+    current_user: Utilisateur = Depends(require_rh),
+    db: Session = Depends(get_db),
+):
+    """Dépose le document reçu de l'extérieur, puis clôt la demande.
+
+    C'est le chemin du **bulletin de paie** : le comptable le transmet, le RH le
+    dépose depuis l'écran de validation, et il atterrit dans le dossier du
+    salarié — visible par lui — sans que l'application n'en fabrique un.
+    """
+    from app.models.depot_document import DepotDocument
+    from app.services import nextcloud as nc
+    from app.services import stockage
+    from app.services.demande_service import CATEGORIE_DEPOT, se_genere
+    from app.services.security import read_upload_limited, safe_filename
+
+    demande = db.query(Demande).filter(Demande.id == demande_id).first()
+    if not demande:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    if se_genere(demande.type):
+        raise HTTPException(
+            status_code=400,
+            detail="Ce type de document est généré par l'application : utilisez « Valider ».",
+        )
+    if demande.statut not in ("en_attente", "en_cours"):
+        raise HTTPException(status_code=400, detail=f"La demande a déjà le statut : {demande.statut}")
+    if demande.employe and demande.employe.utilisateur_id == current_user.id:
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas traiter votre propre demande")
+    if not demande.employe:
+        raise HTTPException(status_code=400, detail="Demande sans salarié rattaché")
+
+    contenu = read_upload_limited(fichier, settings.MAX_UPLOAD_MB)
+    nom = safe_filename(fichier.filename)
+    donnees = demande.donnees_collectees or {}
+
+    try:
+        # Visible par le salarié : c'est lui qui l'a demandé.
+        chemin = stockage.deposer(db, demande.employe, contenu, nom,
+                                  fichier.content_type, True)
+    except nc.NextcloudIndisponible as e:
+        # Avant toute écriture en base : pas de ligne sans fichier derrière.
+        raise HTTPException(status_code=503, detail=str(e))
+
+    doc = DepotDocument(
+        employe_id=demande.employe_id,
+        uploaded_by_rh_id=_get_rh(current_user, db).id,
+        categorie=CATEGORIE_DEPOT.get(demande.type, "autre"),
+        nom_fichier=nom,
+        chemin_fichier=chemin,
+        # Reprend le mois et l'année demandés : c'est ce qui permettra de
+        # retrouver « mars 2026 » et d'éviter une seconde demande pour rien.
+        mois=str(donnees.get("mois") or "").zfill(2) or None,
+        annee=int(donnees["annee"]) if str(donnees.get("annee") or "").isdigit() else None,
+        visible_employe=True,
+    )
+    db.add(doc)
+    demande.statut = "validee"
+
+    if demande.employe.utilisateur:
+        notifier(
+            db=db,
+            utilisateur_id=demande.employe.utilisateur.id,
+            type="doc_depose",
+            titre="Document disponible",
+            message=f"Votre {demande.type.replace('_', ' ')} a été déposé dans votre espace.",
+            lien="/employe/mes-documents",
+        )
+    log_action(db, current_user, "demande.deposer", cible_type="demande",
+               cible_id=demande.id, cible_libelle=f"{demande.type} · {nom}")
+    db.commit()
+    db.refresh(doc)
+    return {
+        "message": "Document déposé dans le dossier du salarié, demande clôturée.",
+        "depot_document_id": doc.id,
+        "demande_id": demande.id,
+        "genere": False,
     }
 
 

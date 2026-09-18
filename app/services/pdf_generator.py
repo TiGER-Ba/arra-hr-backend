@@ -110,16 +110,18 @@ def _load_base_data(db: Session, demande_id: int) -> tuple[Demande, TemplateMode
         "logo_url": _logo_data_uri(),
     }
 
-    # ⚠️ Le bulletin de paie applique le barème MAROCAIN (CNSS 4,48 %, AMO
-    # 2,26 %, IR). Pour un salarié ARRA France, il faudrait les cotisations
-    # françaises (URSSAF, retraite complémentaire, CSG/CRDS) : changer la seule
-    # devise produirait un bulletin en euros aux taux marocains, c'est-à-dire un
-    # document faux. On refuse plutôt que d'en émettre un.
-    if demande.type == "bulletin_paie" and entite == "FR":
+    # ⚠️ L'application NE GÉNÈRE PLUS de bulletin de paie, quelle que soit
+    # l'entité. Il est établi par le comptable : en produire un ici, avec des
+    # cotisations calculées de son côté, ferait exister deux bulletins
+    # différents pour le même mois — et le bulletin est un document opposable.
+    # La demande sert à le réclamer ; le RH dépose celui du comptable.
+    from app.services.demande_service import se_genere
+
+    if not se_genere(demande.type):
         raise RuntimeError(
-            "Bulletin de paie indisponible pour un salarié ARRA France : le barème "
-            "de cotisations françaises n'est pas encore paramétré. Déposez le "
-            "bulletin établi par votre gestionnaire de paie dans « Documents »."
+            "Le bulletin de paie n'est pas généré par l'application : il est "
+            "établi par le comptable. Déposez le bulletin reçu dans le dossier "
+            "du salarié — la demande sera clôturée automatiquement."
         )
 
     # donnees_collectees overrides base — but restore numeric types

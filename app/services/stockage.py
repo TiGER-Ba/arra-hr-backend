@@ -80,3 +80,51 @@ def supprimer(db: Session, chemin: str) -> None:
         return
     if chemin and os.path.exists(chemin):
         os.remove(chemin)
+
+
+def deposer(db: Session, employe, contenu: bytes, nom_fichier: str,
+            type_mime: str | None, visible_employe: bool) -> str:
+    """Écrit un fichier dans le dossier du salarié et rend son `chemin_fichier`.
+
+    Seul endroit qui décide **où** écrire : Nextcloud s'il est branché, le
+    disque sinon. Appelé depuis le dépôt manuel du RH et depuis la clôture
+    d'une demande de bulletin — deux copies de cet aiguillage auraient divergé.
+
+    ⚠️ Lève `NextcloudIndisponible` plutôt que de se rabattre sur le disque : un
+    document qui atterrit silencieusement ailleurs que dans le drive serait
+    invisible au comptable et au RH qui le cherchent dans Nextcloud.
+    """
+    import os
+
+    from app.config import settings
+    from app.services import dossier_employe
+    from app.services.security import safe_filename, safe_join
+
+    nom_sur = safe_filename(nom_fichier)
+
+    cfg = nextcloud.config(db, obligatoire=False)
+    if cfg:
+        # ⚠️ Le SOUS-DOSSIER porte la visibilité : un document non visible part
+        # dans « Administratif », que le salarié ne voit pas.
+        dossier = dossier_employe.assurer_dossier(cfg, employe)
+        libre = dossier_employe.nom_disponible(cfg, dossier, visible_employe, nom_sur)
+        relatif = nextcloud.envoyer(
+            cfg,
+            dossier_employe.chemin_document(dossier, visible_employe, libre),
+            contenu,
+            type_mime,
+        )
+        return chemin_distant(relatif)
+
+    depot_dir = os.path.join(settings.UPLOADS_DIR, "depot")
+    dossier = safe_join(depot_dir, f"employe_{safe_filename(employe.matricule, 'inconnu')}")
+    os.makedirs(dossier, exist_ok=True)
+    tige, extension = os.path.splitext(nom_sur)
+    cible = safe_join(dossier, nom_sur)
+    compteur = 1
+    while os.path.exists(cible):
+        cible = safe_join(dossier, f"{tige}_{compteur}{extension}")
+        compteur += 1
+    with open(cible, "wb") as f:
+        f.write(contenu)
+    return cible

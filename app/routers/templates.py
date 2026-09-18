@@ -96,8 +96,17 @@ def liste_modeles(
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
-    """Modèles disponibles, contrats compris — sans leur contenu."""
-    lignes = db.query(TemplateModel).order_by(TemplateModel.type).all()
+    """Modèles disponibles, contrats compris — sans leur contenu.
+
+    ⚠️ Les types qui ne se génèrent plus sont **masqués** : le bulletin de paie
+    est établi par le comptable, son modèle ne produit plus rien. Le laisser
+    dans la liste inviterait à passer du temps sur un document mort. La ligne en
+    base est conservée — les bulletins générés avant y font référence.
+    """
+    from app.services.demande_service import se_genere
+
+    lignes = [t for t in db.query(TemplateModel).order_by(TemplateModel.type).all()
+              if se_genere(t.type)]
     return [
         {
             "type": t.type,

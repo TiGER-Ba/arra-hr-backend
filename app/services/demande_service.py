@@ -36,6 +36,26 @@ TYPES_EXTERNE: set[str] = {
 }
 
 
+# Types que l'application **ne génère pas** : le document vient de l'extérieur.
+#
+# ⚠️ Le bulletin de paie est établi par le COMPTABLE, pas par cette
+# application. Elle en produisait un avec des cotisations calculées (CNSS
+# 4,48 %, AMO 2,26 %, IR) — un document légalement opposable, fabriqué à côté
+# de la source de vérité. Deux bulletins différents pour le même mois, c'est le
+# genre d'écart qui se découvre devant l'inspection du travail.
+#
+# La demande sert désormais à **réclamer** le bulletin : le RH le dépose dans le
+# dossier du salarié, ce qui clôt la demande.
+TYPES_SANS_GENERATION: set[str] = {"bulletin_paie"}
+
+#: Catégorie du dépôt où ranger le document déposé, par type de demande.
+CATEGORIE_DEPOT = {"bulletin_paie": "bulletin_paie"}
+
+
+def se_genere(type_demande: str) -> bool:
+    return type_demande not in TYPES_SANS_GENERATION
+
+
 def types_autorises(employe) -> list[str]:
     """Types de demandes accessibles, selon la nature de l'engagement."""
     from app.routers.users import est_externe

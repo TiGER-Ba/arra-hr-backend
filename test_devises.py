@@ -157,16 +157,27 @@ def main():
         pdf_generator._load_base_data(db, d.id)
     except RuntimeError as e:
         refus = str(e)
+    # ⚠️ Le refus ne tient plus au barème français : l'application ne génère
+    # AUCUN bulletin, quelle que soit l'entité — il est établi par le
+    # comptable (cf. test_bulletin_depot.py). Le refus vaut donc toujours pour
+    # un salarié France, pour une raison plus large.
     verifier(refus is not None, "bulletin refusé pour un salarié France")
-    verifier(refus is not None and "France" in refus and "paie" in refus.lower(),
-             "le refus explique pourquoi", refus or "aucun message")
+    verifier(refus is not None and "comptable" in refus.lower(),
+             "le refus dit d'où vient le document", refus or "aucun message")
 
+    # Le refus ne dépend PAS de l'entité : un bulletin marocain non plus n'est
+    # pas généré. Le vérifier ici évite qu'on croie la règle limitée à la France.
     d_ma = Demande(employe_id=maroc1.id, type="bulletin_paie", statut="validee",
                    donnees_collectees={"mois": "01", "annee": 2026})
     db.add(d_ma)
     db.commit()
-    _, _, donnees = pdf_generator._load_base_data(db, d_ma.id)
-    verifier(donnees["devise"] == "MAD", "bulletin Maroc : devise MAD", str(donnees["devise"]))
+    refus_ma = None
+    try:
+        pdf_generator._load_base_data(db, d_ma.id)
+    except RuntimeError as e:
+        refus_ma = str(e)
+    verifier(refus_ma is not None, "bulletin refusé aussi pour un salarié Maroc")
+    # La devise des autres documents est vérifiée en section 8.
 
     print("\n— 8. Les autres documents portent la devise du salarié —")
     for type_doc in ("attestation_salaire", "demande_avance_salaire"):
