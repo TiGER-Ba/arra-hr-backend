@@ -25,22 +25,35 @@ vide.
 
 | | |
 |---|---|
-| Où | Nextcloud → **`6.11 Sauvegardes Admin RH`** |
+| Où | Nextcloud → **`6.10 RH Admin web/Backups_DB/`** |
 | Quand | **05:00 heure serveur (CEST) = 03:00 UTC**, tous les jours |
 | Rétention | **7 sauvegardes** sur Nextcloud (= 14 pièces), **3** en local |
 | Avant chaque déploiement | un dump supplémentaire (`update.sh`, étape 3/6) |
 
-## 🔴 À FAIRE CÔTÉ NEXTCLOUD — restreindre l'accès au dossier
+## Où, et pourquoi là
 
-**Le dump contient les salaires, les CIN et les RIB en clair.**
+Chaque application range ses sauvegardes **dans son propre dossier**. Le
+recrutement le fait déjà avec `6.9 Recrutement/Backups_DB/` ; on suit la même
+convention. Aucun dossier n'est créé ailleurs qu'à sa place, et le confinement
+de l'application (`_chemin_sur`) s'applique donc sans privilège particulier.
 
-Le dossier `6.11 Sauvegardes Admin RH` doit être accessible **au seul
-administrateur**, jamais à l'équipe RH qui parcourt `6.10 RH Admin web` au
-quotidien. Un dump ouvert à tous serait pire que pas de sauvegarde : il
-transformerait une protection en fuite.
+```
+6.10 RH Admin web/
+├── ARRA-I024 - BENJELLOUN Karim/     ← dossiers du personnel
+├── _Archives/                         ← comptes supprimés
+└── Backups_DB/                        ← 🔴 accès restreint
+```
 
-À vérifier dans Nextcloud : le dossier n'est partagé avec **aucun** groupe, et
-aucun lien public n'existe dessus.
+## 🔴 À FAIRE CÔTÉ NEXTCLOUD — restreindre `Backups_DB`
+
+**Le dump contient les salaires, les CIN et les RIB en clair**, alors que
+l'équipe RH parcourt `6.10 RH Admin web` au quotidien. Le sous-dossier
+`Backups_DB` doit donc être accessible **au seul administrateur**. Un dump
+ouvert à tous serait pire que pas de sauvegarde : il transformerait une
+protection en fuite.
+
+À vérifier dans Nextcloud : `Backups_DB` n'est partagé avec **aucun** groupe,
+et aucun lien public n'existe dessus.
 
 ## Pourquoi 05:00 et pas une autre heure
 

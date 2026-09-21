@@ -4,7 +4,7 @@ Appelé par `deploy/backup.sh`, qui produit le dump et le pousse sur **l'entrée
 standard** de ce module, exécuté DANS le conteneur `api` :
 
     docker compose -p arra-admin exec -T api python -m app.sauvegarde deposer \\
-        --nom arra-admin_20260921-050000.sql.gz < dump.sql.gz
+        --nom arra-admin_20260921-030000.sql.gz < dump.sql.gz
 
 ⚠️ **Pourquoi passer par le conteneur `api` plutôt que par du bash.** Le mot de
 passe Nextcloud est **chiffré** en base (Fernet, clé dérivée de `SECRET_KEY`).
@@ -12,15 +12,19 @@ Un script shell ne peut pas le lire sans qu'on le recopie en clair quelque part
 — ce qui annulerait le chiffrement. Ici on réutilise le client déjà écrit et
 déjà testé, et le secret ne quitte jamais le processus.
 
-⚠️ **Dossier SÉPARÉ des documents.** Le dump contient les salaires, les CIN et
-les RIB **en clair**. Il ne doit pas atterrir dans le dossier que l'équipe RH
-parcourt au quotidien. `RACINE_SAUVEGARDES` est distinct de la racine
-documentaire, et ses droits Nextcloud doivent être **restreints à
-l'administrateur** — un dump lisible par tous serait pire que pas de
-sauvegarde.
+⚠️ **Chaque application range ses sauvegardes dans SON dossier.** Le
+recrutement le fait déjà : `6.9 Recrutement/Backups_DB/`. On suit la même
+convention — `6.10 RH Admin web/Backups_DB/` — plutôt que de créer un dossier
+ailleurs. Rien n'est écrit hors du dossier de l'application, et le confinement
+de `_chemin_sur` s'applique donc sans changer de racine.
+
+🔴 **Les droits du sous-dossier `Backups_DB` doivent être restreints à
+l'administrateur.** Le dump contient les salaires, les CIN et les RIB **en
+clair**, alors que l'équipe RH parcourt `6.10 RH Admin web` au quotidien. Un
+dump lisible par tous serait pire que pas de sauvegarde. Cela se règle côté
+Nextcloud, sur le sous-dossier.
 """
 import argparse
-import dataclasses
 import os
 import re
 import sys
@@ -29,9 +33,11 @@ from datetime import datetime, timezone
 from app.database import SessionLocal
 from app.services import nextcloud
 
-#: Dossier Nextcloud des sauvegardes — JAMAIS celui des documents du personnel.
-RACINE_DEFAUT = "6.11 Sauvegardes Admin RH"
-CLE_RACINE = "nextcloud_racine_sauvegardes"
+#: Sous-dossier des sauvegardes, DANS le dossier de l'application.
+#: Même nom que chez le recrutement (`6.9 Recrutement/Backups_DB/`) : une seule
+#: convention à retenir pour les deux plateformes.
+SOUS_DOSSIER_DEFAUT = "Backups_DB"
+CLE_SOUS_DOSSIER = "nextcloud_sous_dossier_sauvegardes"
 
 #: Nombre de sauvegardes conservées, aligné sur la rotation du recrutement.
 RETENTION = 7
@@ -75,19 +81,27 @@ def nom_sauvegarde(instant: datetime | None = None, fichiers: bool = False) -> s
     return f"{PREFIXE}{horodatage(instant)}{suffixe}"
 
 
-def config_sauvegardes(db):
-    """Config Nextcloud pointée sur le dossier des sauvegardes.
-
-    On réutilise l'URL, l'utilisateur et le mot de passe déchiffré, mais on
-    **remplace la racine**. Le garde-fou de `_chemin_sur` s'applique alors à
-    `6.11 …` : ce module ne peut pas plus écrire hors de son dossier que le
-    reste de l'application ne peut sortir du sien.
-    """
+def sous_dossier(db) -> str:
+    """Sous-dossier des sauvegardes, sous la racine de l'application."""
     from app.services.parametrage import get_param
 
-    cfg = nextcloud.config(db)          # lève NonConfigure si Nextcloud absent
-    racine = (get_param(db, CLE_RACINE, "") or "").strip() or RACINE_DEFAUT
-    return dataclasses.replace(cfg, racine=racine)
+    return (get_param(db, CLE_SOUS_DOSSIER, "") or "").strip() or SOUS_DOSSIER_DEFAUT
+
+
+def config_sauvegardes(db):
+    """Config Nextcloud de l'application — la racine ne change PAS.
+
+    Les sauvegardes vivent dans un **sous-dossier** (`Backups_DB`), comme chez
+    le recrutement. Le garde-fou de `_chemin_sur` continue donc de confiner
+    tout accès sous `6.10 RH Admin web` : ce module n'a aucun privilège que le
+    reste de l'application n'a pas.
+    """
+    return nextcloud.config(db)         # lève NonConfigure si Nextcloud absent
+
+
+def _chemin(sd: str, nom: str) -> str:
+    """Chemin d'une pièce, relatif à la racine de l'application."""
+    return f"{sd}/{nom}"
 
 
 def deposer(contenu: bytes, nom: str) -> dict:
@@ -103,27 +117,28 @@ def deposer(contenu: bytes, nom: str) -> dict:
     db = SessionLocal()
     try:
         cfg = config_sauvegardes(db)
-        nextcloud.assurer_dossier(cfg, "")
-        nextcloud.envoyer(cfg, nom, contenu, "application/gzip")
-        supprimees = _rotation(cfg)
-        restantes = _sauvegardes(cfg)
+        sd = sous_dossier(db)
+        nextcloud.assurer_dossier(cfg, sd)
+        nextcloud.envoyer(cfg, _chemin(sd, nom), contenu, "application/gzip")
+        supprimees = _rotation(cfg, sd)
+        restantes = _sauvegardes(cfg, sd)
     finally:
         db.close()
 
     return {
         "depose": nom,
         "octets": len(contenu),
-        "racine": cfg.racine,
+        "racine": f"{cfg.racine}/{sd}",
         "supprimees": supprimees,
         "conservees": restantes,
         "sauvegardes_conservees": len(_par_horodatage(restantes)),
     }
 
 
-def _sauvegardes(cfg) -> list[str]:
-    """Nos sauvegardes présentes, les plus récentes d'abord."""
+def _sauvegardes(cfg, sd: str) -> list[str]:
+    """Nos sauvegardes présentes dans `Backups_DB`, les plus récentes d'abord."""
     return sorted(
-        (e["nom"] for e in nextcloud.lister(cfg, "")
+        (e["nom"] for e in nextcloud.lister(cfg, sd)
          if not e["dossier"] and MOTIF_SAUVEGARDE.match(e["nom"])),
         reverse=True,
     )
@@ -139,7 +154,7 @@ def _par_horodatage(noms) -> dict[str, list[str]]:
     return groupes
 
 
-def _rotation(cfg) -> list[str]:
+def _rotation(cfg, sd: str) -> list[str]:
     """Garde les `RETENTION` sauvegardes les plus récentes, pièces comprises.
 
     ⚠️ La rétention compte des **sauvegardes**, pas des fichiers. Une
@@ -150,11 +165,11 @@ def _rotation(cfg) -> list[str]:
     à la main dans ce dossier, une archive d'un autre outil, un sous-dossier :
     rien de tout cela n'est touché.
     """
-    groupes = _par_horodatage(_sauvegardes(cfg))
+    groupes = _par_horodatage(_sauvegardes(cfg, sd))
     perimes = sorted(groupes, reverse=True)[RETENTION:]
     a_supprimer = [nom for h in perimes for nom in sorted(groupes[h])]
     for nom in a_supprimer:
-        nextcloud.supprimer(cfg, nom)
+        nextcloud.supprimer(cfg, _chemin(sd, nom))
     return a_supprimer
 
 
@@ -256,13 +271,14 @@ def lister() -> dict:
     db = SessionLocal()
     try:
         cfg = config_sauvegardes(db)
-        noms = _sauvegardes(cfg)
-        details = {e["nom"]: e for e in nextcloud.lister(cfg, "")}
+        sd = sous_dossier(db)
+        noms = _sauvegardes(cfg, sd)
+        details = {e["nom"]: e for e in nextcloud.lister(cfg, sd)}
     finally:
         db.close()
     groupes = _par_horodatage(noms)
     return {
-        "racine": cfg.racine,
+        "racine": f"{cfg.racine}/{sd}",
         "nombre": len(groupes),
         "pieces": len(noms),
         # ⚠️ Une sauvegarde incomplète (base sans fichiers, ou l'inverse) doit
@@ -282,7 +298,7 @@ def recuperer(nom: str) -> bytes:
         raise ValueError(f"Nom de sauvegarde non conforme : {nom!r}")
     db = SessionLocal()
     try:
-        return nextcloud.lire(config_sauvegardes(db), nom)
+        return nextcloud.lire(config_sauvegardes(db), _chemin(sous_dossier(db), nom))
     finally:
         db.close()
 

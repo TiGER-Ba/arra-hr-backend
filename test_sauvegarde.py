@@ -45,16 +45,22 @@ class _FauxDrive:
         self.supprimes = []
 
     def lister(self, cfg, chemin=""):
+        # Le faux drive ne stocke que le contenu de Backups_DB : la vraie
+        # implémentation ne liste jamais autre chose pour la rotation.
         return [{"nom": n, "dossier": False, "taille": len(c), "modifie": None}
                 for n, c in self.fichiers.items()]
 
+    def _nom(self, chemin):
+        """Retire le préfixe du sous-dossier — les clés restent des noms nus."""
+        return chemin.split("/")[-1]
+
     def envoyer(self, cfg, chemin, contenu, type_mime=None):
-        self.fichiers[chemin] = contenu
+        self.fichiers[self._nom(chemin)] = contenu
         return chemin
 
     def supprimer(self, cfg, chemin):
-        self.supprimes.append(chemin)
-        self.fichiers.pop(chemin, None)
+        self.supprimes.append(self._nom(chemin))
+        self.fichiers.pop(self._nom(chemin), None)
 
     def assurer_dossier(self, cfg, chemin=""):
         return False
@@ -78,25 +84,41 @@ def main():
     from app.services import nextcloud as nc
     from app import sauvegarde as sv
 
-    doc = nc.Config(url="https://x", utilisateur="svc", mot_de_passe="p",
-                    racine="6.10 RH Admin web")
     sauv = nc.Config(url="https://x", utilisateur="svc", mot_de_passe="p",
-                     racine=sv.RACINE_DEFAUT)
+                     racine="6.10 RH Admin web")
+    SD = sv.SOUS_DOSSIER_DEFAUT
 
-    print("\n— 1. Le dossier des sauvegardes est SÉPARÉ des documents —")
-    # ⚠️ Le dump contient salaires, CIN et RIB en clair : il ne doit pas
-    # atterrir dans le dossier que l'équipe RH parcourt au quotidien.
-    verifier(sv.RACINE_DEFAUT != doc.racine,
-             "racine distincte de la racine documentaire", sv.RACINE_DEFAUT)
-    verifier("6.11" in sv.RACINE_DEFAUT, "dossier 6.11 attendu", sv.RACINE_DEFAUT)
+    print("\n— 1. Les sauvegardes vivent DANS le dossier de l'application —")
+    # Chaque application range ses sauvegardes chez elle : le recrutement fait
+    # « 6.9 Recrutement/Backups_DB/ », on fait « 6.10 RH Admin web/Backups_DB/ ».
+    verifier(SD == "Backups_DB", "même nom de sous-dossier que le recrutement", SD)
+    chemin = sv._chemin(SD, sv.nom_sauvegarde())
+    verifier(chemin.startswith("Backups_DB/"),
+             "les pièces sont rangées dans le sous-dossier", chemin)
+    resolu_complet = nc._chemin_sur(sauv, chemin)
+    verifier(resolu_complet.startswith("6.10 RH Admin web/Backups_DB/"),
+             "rien n'est écrit hors du dossier de l'application", resolu_complet)
+
+    print("\n— 1bis. Backups_DB n'est pas confondu avec une fiche salarié —")
+    # Il apparaît désormais à la racine, à côté des dossiers des salariés.
+    from app.services import dossier_employe as de
+
+    class _U:
+        nom, prenom = "BENALI", "Sara"
+
+    class _Fiche1:
+        matricule, id, utilisateur = "ARRA-I001", 1, _U()
+
+    connus = ["ARRA-I001 - BENALI Sara", SD, "_Archives"]
+    verifier(de.dossier_existant(sauv, _Fiche1(), connus) == "ARRA-I001 - BENALI Sara",
+             "la résolution par matricule ignore Backups_DB")
+    verifier(de.visibilite_depuis_chemin(f"{SD}/arra-admin_x.sql.gz") is None,
+             "un dump n'est ni « Partagé » ni « Administratif »")
 
     print("\n— 2. Le confinement s'applique aussi aux sauvegardes —")
-    # Même garde-fou que pour les documents : on ne sort pas de sa racine.
-    resolu = nc._chemin_sur(sauv, "arra-admin_20260921-030000.sql.gz")
-    verifier(resolu.startswith(sv.RACINE_DEFAUT + "/"),
-             "un chemin normal reste sous 6.11", resolu)
-    for mauvais in ("../6.10 RH Admin web/vol.sql.gz",
-                    "../../6.9 Recrutement/vol.sql.gz",
+    # ⚠️ Le scénario redouté reste le même : atteindre l'autre plateforme.
+    for mauvais in ("../6.9 Recrutement/vol.sql.gz",
+                    "Backups_DB/../../6.9 Recrutement/vol.sql.gz",
                     "/etc/passwd"):
         refuse(lambda m=mauvais: nc._chemin_sur(sauv, m), f"refusé : {mauvais!r}")
 
@@ -126,7 +148,7 @@ def main():
     drive = _FauxDrive(anciennes)
     restaurer = drive.installer(sauv)
     try:
-        supprimees = sv._rotation(sauv)
+        supprimees = sv._rotation(sauv, SD)
     finally:
         restaurer()
     restants = sv._par_horodatage(list(drive.fichiers))
@@ -154,7 +176,7 @@ def main():
     drive = _FauxDrive(anciennes + etrangers)
     restaurer = drive.installer(sauv)
     try:
-        sv._rotation(sauv)
+        sv._rotation(sauv, SD)
     finally:
         restaurer()
     for e in etrangers:
@@ -171,10 +193,13 @@ def main():
         import app.sauvegarde as module
         origine = module.config_sauvegardes
         module.config_sauvegardes = lambda db: sauv
+        origine_sd = module.sous_dossier
+        module.sous_dossier = lambda db: SD
         try:
             compte_rendu = sv.deposer(b"g" * 4096, nom)
         finally:
             module.config_sauvegardes = origine
+            module.sous_dossier = origine_sd
     finally:
         restaurer()
     verifier(compte_rendu["depose"] == nom, "la sauvegarde est déposée")

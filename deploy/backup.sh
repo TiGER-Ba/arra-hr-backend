@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ── ARRA ADMIN — sauvegarde PostgreSQL vers Nextcloud ────────────────────────
 #
-# Produit DEUX pièces par exécution, déposées sur Nextcloud dans un dossier à
-# accès restreint, avec rotation sur 7 jours (comme le recrutement) :
+# Produit DEUX pièces par exécution, déposées dans
+# « 6.10 RH Admin web/Backups_DB/ » sur Nextcloud — chaque application range
+# ses sauvegardes chez elle, comme « 6.9 Recrutement/Backups_DB/ ».
+# Rotation sur 7 sauvegardes, comme le recrutement :
 #
 #   arra-admin_AAAAMMJJ-HHMMSS.sql.gz            la base PostgreSQL
 #   arra-admin_AAAAMMJJ-HHMMSS_fichiers.tar.gz   le volume `uploads`
