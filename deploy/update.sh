@@ -37,7 +37,7 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "════════════════════════════════════════════════════════"
 
 echo
-echo "── 1/5 · Récupération du code ──"
+echo "── 1/6 · Récupération du code ──"
 AVANT_API=$(git -C backend rev-parse HEAD)
 AVANT_WEB=$(git -C frontend rev-parse HEAD)
 git -C backend pull --ff-only
@@ -46,12 +46,32 @@ APRES_API=$(git -C backend rev-parse HEAD)
 APRES_WEB=$(git -C frontend rev-parse HEAD)
 
 echo
-echo "── 2/5 · Synchronisation du docker-compose ──"
+echo "── 2/6 · Synchronisation du docker-compose ──"
 # Le compose est versionné dans le dépôt backend : on reprend toujours sa version.
 cp -f backend/deploy/docker-compose.yml "$RACINE/docker-compose.yml"
 
 echo
-echo "── 3/5 · Reconstruction ──"
+echo "── 3/6 · Point de retour avant migration ──"
+# ⚠️ L'API applique db_migrate au démarrage. Une migration mal écrite peut
+# corrompre une table, et il n'y avait jusqu'ici AUCUN moyen de revenir en
+# arrière. On prend donc un dump juste avant de reconstruire.
+# Volontairement NON bloquant : refuser un déploiement parce que la sauvegarde
+# a échoué immobiliserait la plateforme pour une raison secondaire. Mais
+# l'avertissement doit être visible dans le journal du déploiement.
+if [ -x "$RACINE/backup.sh" ]; then
+  if "$RACINE/backup.sh" >/dev/null 2>&1; then
+    echo "  ✅ sauvegarde prise avant migration"
+  else
+    echo "  ⚠️  SAUVEGARDE ÉCHOUÉE — déploiement poursuivi SANS point de retour"
+    echo "      Vérifier : $RACINE/backup.sh"
+  fi
+else
+  echo "  ⚠️  $RACINE/backup.sh absent — aucun point de retour avant migration"
+  echo "      Installation : voir backend/deploy/SAUVEGARDES.md"
+fi
+
+echo
+echo "── 4/6 · Reconstruction ──"
 case "$CIBLE" in
   api)  SERVICES=(api) ;;
   web)  SERVICES=(web) ;;
@@ -71,7 +91,7 @@ echo "  services reconstruits : ${SERVICES[*]}"
 docker compose -p "$PROJET" up -d --build "${SERVICES[@]}"
 
 echo
-echo "── 4/5 · Vérification ARRA ADMIN ──"
+echo "── 5/6 · Vérification ARRA ADMIN ──"
 sleep 8
 docker compose -p "$PROJET" ps
 echo
@@ -81,7 +101,7 @@ curl -fsS -o /dev/null -w "  Frontend → HTTP %{http_code}\n" http://127.0.0.1:
   || { echo "  ❌ Le frontend ne répond pas — consultez : docker compose -p $PROJET logs web"; exit 1; }
 
 echo
-echo "── 5/5 · Non-régression : plateforme de recrutement ──"
+echo "── 6/6 · Non-régression : plateforme de recrutement ──"
 curl -fsS -o /dev/null -w "  rh.arra-engineering.com → HTTP %{http_code}\n" https://rh.arra-engineering.com \
   || echo "  ⚠️  rh.arra-engineering.com ne répond pas (à vérifier — sans lien avec ce déploiement)"
 
