@@ -6,12 +6,28 @@
 
 ## Ce qui tourne
 
+Chaque exécution produit **deux pièces** portant le **même horodatage** :
+
+| Pièce | Contenu |
+|---|---|
+| `arra-admin_AAAAMMJJ-HHMMSS.sql.gz` | la base PostgreSQL |
+| `arra-admin_AAAAMMJJ-HHMMSS_fichiers.tar.gz` | le volume `uploads` |
+
+⚠️ **Pourquoi la seconde.** `uploads/parametrage/` porte la **signature et le
+cachet scannés**. Ce sont des **originaux numérisés** : perdus, ils ne se
+reconstruisent pas — il faudrait retrouver la personne qui a le tampon
+physique et le rescanner. Et sans eux, **tous** les documents générés sortent
+amputés. Quelques Mo contre une panne qu'aucune restauration de base ne répare.
+
+⚠️ Les deux pièces se restaurent **ensemble** : le dump référence des chemins
+de fichiers. Restaurer la base seule laisserait des documents pointant dans le
+vide.
+
 | | |
 |---|---|
-| Quoi | `pg_dump` de la base `arra-admin`, compressé gzip |
 | Où | Nextcloud → **`6.11 Sauvegardes Admin RH`** |
 | Quand | **05:00 heure serveur (CEST) = 03:00 UTC**, tous les jours |
-| Rétention | **7** sur Nextcloud, **3** en copie locale sur le VPS |
+| Rétention | **7 sauvegardes** sur Nextcloud (= 14 pièces), **3** en local |
 | Avant chaque déploiement | un dump supplémentaire (`update.sh`, étape 3/6) |
 
 ## 🔴 À FAIRE CÔTÉ NEXTCLOUD — restreindre l'accès au dossier
@@ -111,7 +127,20 @@ plus courante, et on ne la découvre qu'au moment d'en avoir besoin.
 
 # ou depuis la copie locale
 /root/arra-admin/restaurer.sh --fichier /root/arra-admin/sauvegardes/arra-admin_….sql.gz
+
+# 3. Restaurer AUSSI les fichiers (signature, cachet) — archive de même horodatage
+/root/arra-admin/restaurer.sh --nextcloud arra-admin_20260921-030000.sql.gz --avec-fichiers
 ```
+
+⚠️ `--avec-fichiers` **fusionne** dans `uploads/`, il n'efface rien : un fichier
+déposé depuis la sauvegarde n'est pas perdu. Un fichier présent des deux côtés
+est écrasé par celui de l'archive — c'est le but quand on restaure une
+signature disparue.
+
+⚠️ L'extraction passe par `app.sauvegarde`, pas par `tar` : l'archive vient du
+réseau, et le module écarte les chemins absolus, les remontées `..` et les
+liens symboliques. Toute entrée écartée est **affichée**, jamais avalée en
+silence.
 
 Le script demande de taper `RESTAURER`, prend un dump de l'état actuel avant
 d'écraser (dans `sauvegardes/avant-restauration_*.sql.gz`), arrête l'API le
@@ -145,13 +174,12 @@ docker compose -p arra-admin exec -T db dropdb -U "$POSTGRES_USER" test_restaura
 | | Où c'est | Protection |
 |---|---|---|
 | Documents du personnel | Nextcloud `6.10 RH Admin web` | sauvegarde Nextcloud de l'entreprise |
-| Signature / cachet, pièces déposées avant Nextcloud | volume `uploads` | ⚠️ **aucune** |
+| Signature / cachet, pièces déposées avant Nextcloud | volume `uploads` | ✅ archive `_fichiers.tar.gz` |
 | Index RAG (base de connaissances) | volume `chroma` | reconstructible depuis `/rh/knowledge` |
 
-⚠️ Le volume `uploads` n'est pas sauvegardé. Il ne contient plus grand-chose
-depuis la bascule sur Nextcloud, mais il porte encore la **signature et le
-cachet scannés** utilisés par tous les documents générés. À traiter si vous
-voulez une couverture complète.
+Reste non couvert : l'index RAG (`chroma`), qui se reconstruit depuis
+`/rh/knowledge`, et les documents du personnel, déjà sur Nextcloud et couverts
+par la sauvegarde Nextcloud de l'entreprise.
 
 ## Isolement — ce que ces scripts ne font jamais
 

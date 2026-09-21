@@ -10,6 +10,13 @@
 #   ./restaurer.sh --lister                       voir ce qui est disponible
 #   ./restaurer.sh --nextcloud arra-admin_2026….sql.gz
 #   ./restaurer.sh --fichier /root/arra-admin/sauvegardes/arra-admin_….sql.gz
+#   ./restaurer.sh --nextcloud <base> --avec-fichiers   restaure AUSSI uploads/
+#
+# ⚠️ `--avec-fichiers` restaure l'archive `_fichiers.tar.gz` de MÊME
+#    horodatage. À utiliser quand la signature ou le cachet scannés ont
+#    disparu : ce sont des originaux numérisés, la base ne les contient pas.
+#    L'archive est FUSIONNÉE dans uploads/ (elle n'efface rien) — un fichier
+#    présent des deux côtés est écrasé par celui de la sauvegarde.
 #
 # Une sauvegarde jamais restaurée n'est pas une sauvegarde : faites le test au
 # moins une fois, sur une base de test, AVANT d'en avoir besoin.
@@ -28,12 +35,14 @@ compose() { docker compose -p "$PROJET" "$@"; }
 SOURCE=""
 NOM_DISTANT=""
 FICHIER=""
+AVEC_FICHIERS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --lister)    SOURCE="lister"; shift ;;
-    --nextcloud) SOURCE="distant"; NOM_DISTANT="${2:-}"; shift 2 ;;
-    --fichier)   SOURCE="local";   FICHIER="${2:-}";     shift 2 ;;
+    --lister)         SOURCE="lister"; shift ;;
+    --nextcloud)      SOURCE="distant"; NOM_DISTANT="${2:-}"; shift 2 ;;
+    --fichier)        SOURCE="local";   FICHIER="${2:-}";     shift 2 ;;
+    --avec-fichiers)  AVEC_FICHIERS=1; shift ;;
     *) echo "Option inconnue : $1" >&2; exit 1 ;;
   esac
 done
@@ -116,6 +125,44 @@ else
   echo "❌ La restauration a échoué." >&2
   echo "   L'état précédent est dans : $AVANT" >&2
   ETAT=1
+fi
+
+# ── Fichiers déposés (signature, cachet) ────────────────────────────────────
+if [ "$AVEC_FICHIERS" -eq 1 ]; then
+  echo
+  echo "── Restauration des fichiers déposés ──"
+  # On déduit le nom de l'archive de l'horodatage de la base : les deux pièces
+  # d'une même sauvegarde le partagent.
+  BASE_NOM="$(basename "${NOM_DISTANT:-$FICHIER}")"
+  H="${BASE_NOM#arra-admin_}"; H="${H%.sql.gz}"
+  NOM_FICHIERS="arra-admin_${H}_fichiers.tar.gz"
+
+  ARCHIVE="$TEMP/fichiers.tar.gz"
+  if [ "$SOURCE" = "distant" ]; then
+    if ! compose exec -T api python -m app.sauvegarde recuperer --nom "$NOM_FICHIERS" > "$ARCHIVE"; then
+      echo "  ⚠️  $NOM_FICHIERS introuvable sur Nextcloud — fichiers non restaurés"
+      ARCHIVE=""
+    fi
+  else
+    LOCALE="$(dirname "$FICHIER")/$NOM_FICHIERS"
+    if [ -f "$LOCALE" ]; then cp "$LOCALE" "$ARCHIVE"; else
+      echo "  ⚠️  $LOCALE introuvable — fichiers non restaurés"; ARCHIVE=""
+    fi
+  fi
+
+  if [ -n "$ARCHIVE" ] && gzip -t "$ARCHIVE" 2>/dev/null; then
+    # ⚠️ Extraction par le module Python, pas par `tar` : l'image de l'API est
+    # une `python:slim` et l'archive vient du réseau. Le module fusionne sans
+    # effacer, et filtre les chemins absolus, les « .. » et les liens — une
+    # entrée piégée écrirait sinon hors du dossier.
+    if compose exec -T api python -m app.sauvegarde extraire-fichiers < "$ARCHIVE"; then
+      echo "  fichiers restaurés (fusionnés dans uploads/)"
+    else
+      echo "  ⚠️  Extraction échouée — la base reste restaurée." >&2
+    fi
+  elif [ -n "$ARCHIVE" ]; then
+    echo "  ⚠️  Archive corrompue — fichiers non restaurés." >&2
+  fi
 fi
 
 echo
