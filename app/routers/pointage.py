@@ -323,6 +323,22 @@ class RejetBody(BaseModel):
     motif: str
 
 
+class ValidationBody(BaseModel):
+    """Corps de `POST /valider` — les trois champs sont obligatoires.
+
+    ⚠️ **Ne PAS remplacer par une union** du genre
+    `RejetBody | PeriodeBody | dict`. Pydantic essaie les membres dans l'ordre
+    et retient le premier qui valide : un corps `{employe_id, annee, mois}`
+    échoue sur `RejetBody` (pas de `motif`) puis **réussit** sur `PeriodeBody`,
+    qui n'a pas de champ `employe_id` — la valeur est donc **silencieusement
+    supprimée**, et la route répond « employe_id requis » alors que le client
+    l'avait bien envoyé. C'est exactement le bug corrigé le 21/09/2026.
+    """
+    annee: int
+    mois: int
+    employe_id: int
+
+
 @router.put("/ma-feuille")
 def enregistrer_feuille(
     payload: FeuilleSave,
@@ -512,18 +528,17 @@ def _feuille_ou_404(db: Session, employe_id: int, annee: int, mois: int) -> Feui
 
 @router.post("/valider")
 def valider_feuille(
-    payload: RejetBody | PeriodeBody | dict,
+    payload: ValidationBody,
     current_user: Utilisateur = Depends(require_rh),
     db: Session = Depends(get_db),
 ):
     """Valide la feuille d'un salarié (RH/admin). Elle devient non modifiable."""
     from datetime import datetime as _dt
 
-    annee = int(payload.get("annee")) if isinstance(payload, dict) else payload.annee
-    mois = int(payload.get("mois")) if isinstance(payload, dict) else payload.mois
-    employe_id = int(payload.get("employe_id")) if isinstance(payload, dict) else getattr(payload, "employe_id", None)
-    if not employe_id:
-        raise HTTPException(status_code=400, detail="employe_id requis")
+    # Les trois champs sont garantis par le modèle : un corps incomplet est
+    # refusé par FastAPI avec un 422 qui NOMME le champ manquant, au lieu du
+    # 400 « employe_id requis » qui accusait à tort le client.
+    annee, mois, employe_id = payload.annee, payload.mois, payload.employe_id
     _valider_periode(annee, mois)
 
     feuille = _feuille_ou_404(db, employe_id, annee, mois)
