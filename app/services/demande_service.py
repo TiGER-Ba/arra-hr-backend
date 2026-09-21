@@ -131,9 +131,40 @@ NUMBER_FIELDS = {"nombre_jours", "montant"}
 CONGE_TYPES = [
     ("annuel", "Congé annuel"),
     ("maladie", "Congé maladie"),
-    ("maternite", "Congé maternité"),
+    ("exceptionnel", "Congé exceptionnel"),
     ("sans_solde", "Congé sans solde"),
 ]
+
+#: Libellés des types RETIRÉS du formulaire, conservés pour l'affichage.
+#:
+#: ⚠️ Les demandes déjà enregistrées portent la valeur qui était proposée au
+#: moment de la saisie. Retirer « maternite » de `CONGE_TYPES` sans le garder
+#: ici afficherait la clé brute sur les congés passés — et sur les attestations
+#: déjà émises, qu'on réimprimerait alors différemment de l'original.
+#: On ne réécrit pas l'historique : quelqu'un a demandé un congé maternité,
+#: c'est ce qu'il a demandé.
+CONGE_TYPES_HISTORIQUES = [
+    ("maternite", "Congé maternité"),
+]
+
+_LIBELLES_CONGE = dict(CONGE_TYPES + CONGE_TYPES_HISTORIQUES)
+
+
+def libelle_conge(valeur: str | None) -> str:
+    """« exceptionnel » → « Congé exceptionnel ».
+
+    ⚠️ Le formulaire soumet la CLÉ, pas le libellé. Sans cette traduction, la
+    page des congés et les attestations affichaient « annuel », « maternite » —
+    la valeur technique, en minuscules, sur un document signé.
+
+    Une valeur inconnue est rendue telle quelle plutôt que remplacée par un
+    défaut : mieux vaut un libellé imparfait qu'un congé annoncé comme étant
+    d'un autre type que celui demandé.
+    """
+    brut = (valeur or "").strip()
+    if not brut:
+        return ""
+    return _LIBELLES_CONGE.get(brut.lower(), brut)
 
 DATE_ISO_RE = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}$")
 

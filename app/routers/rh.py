@@ -22,7 +22,7 @@ from app.schemas.demande import DemandeOut, DemandeRejeter
 from app.services.auth import require_admin, require_rh
 from app.services.audit import log_action
 from app.services.notifications import notifier
-from app.services.demande_service import se_genere
+from app.services.demande_service import libelle_conge, se_genere
 from app.services.pdf_generator import generate_pdf
 from app.services.profil import profil_rh
 from app.services.soldes import appliquer_deduction_sur_validation
@@ -506,7 +506,9 @@ def pilotage(
             continue
         nom = d.employe.utilisateur.nom if d.employe and d.employe.utilisateur else "—"
         item = {"nom": nom, "debut": debut.isoformat(), "fin": fin.isoformat(),
-                "type": dc.get("type_conge", "congé")}
+                # Libellé lisible : la clé brute (« maternite ») s'affichait
+                # telle quelle sur le tableau de bord.
+                "type": libelle_conge(dc.get("type_conge")) or "Congé"}
         if debut <= aujourdhui <= fin:
             absents_aujourdhui.append(item)
         elif aujourdhui < debut <= dans_30j:
@@ -614,7 +616,7 @@ def _build_conge_rows(db: Session) -> list[dict]:
         nom_complet = emp.utilisateur.nom.split(" ", 1)
         nom = nom_complet[0] if len(nom_complet) >= 1 else ""
         prenom = nom_complet[1] if len(nom_complet) >= 2 else ""
-        type_conge = dc.get("type_conge", "Congé annuel")
+        type_conge = libelle_conge(dc.get("type_conge")) or "Congé annuel"
         date_debut = dc.get("date_debut", "")
         date_fin = dc.get("date_fin", "")
 
